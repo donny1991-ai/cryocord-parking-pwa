@@ -45,3 +45,8 @@ export function waLink(contact: string, message: string): string | null {
   if (!number) return null;
   return `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
 }
+
+/** WhatsApp share link without a pre-selected recipient. */
+export function waShareLink(message: string): string {
+  return `https://wa.me/?text=${encodeURIComponent(message)}`;
+}

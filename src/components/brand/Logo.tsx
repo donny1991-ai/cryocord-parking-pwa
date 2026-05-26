@@ -1,14 +1,9 @@
+import Image from "next/image";
 import { cn } from "@/lib/utils";
 
-const CORD_GREY = "#808184";
-
 /**
- * CryoCord "cell & gene" brand lockup: red swirl mark + lowercase wordmark
- * (cryo = brand red, cord = grey) + "cell & gene" tagline.
- *
- * This is a faithful inline-SVG recreation of the supplied brand artwork. For
- * pixel-perfect fidelity (ICS branding AC), drop the official vector at
- * public/brand/cryocord.svg and point CryoMark/this component at it.
+ * CryoCord brand lockup. Uses the supplied official image for the full logo,
+ * with the inline mark kept for compact/icon-only placements.
  */
 export function Logo({
   className,
@@ -23,33 +18,27 @@ export function Logo({
   inverse?: boolean;
   size?: number;
 }) {
+  if (showWordmark) {
+    return (
+      <span className={cn("inline-flex items-center", className)}>
+        <Image
+          src="/brand/cryocord-logo.png?v=2"
+          alt="CryoCord cell & gene"
+          width={437}
+          height={115}
+          priority
+          unoptimized
+          className={cn("block object-contain", inverse ? "brightness-0 invert" : "mix-blend-multiply")}
+          style={{ height: size * 1.45, width: size * 5.5 }}
+        />
+      </span>
+    );
+  }
+
   return (
     <span className={cn("inline-flex items-center gap-2", className)}>
       <CryoMark size={size} inverse={inverse} />
-      {showWordmark && (
-        <span className="flex flex-col leading-none">
-          <span
-            className="font-bold lowercase tracking-tight"
-            style={{ fontSize: size * 0.72 }}
-          >
-            <span className={inverse ? "text-white" : "text-brand"}>cryo</span>
-            <span style={{ color: inverse ? "rgba(255,255,255,0.85)" : CORD_GREY }}>cord</span>
-          </span>
-          {showTagline && (
-            <span
-              className="lowercase"
-              style={{
-                fontSize: size * 0.26,
-                letterSpacing: size * 0.06,
-                marginTop: size * 0.08,
-                color: inverse ? "rgba(255,255,255,0.7)" : CORD_GREY,
-              }}
-            >
-              cell &amp; gene
-            </span>
-          )}
-        </span>
-      )}
+      {showTagline && <span className="sr-only">CryoCord cell & gene</span>}
     </span>
   );
 }

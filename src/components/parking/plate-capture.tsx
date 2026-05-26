@@ -15,6 +15,11 @@ import {
 
 type Status = "starting" | "live" | "reading" | "blocked";
 
+const PLATE_GUIDE = {
+  widthRatio: 0.78,
+  heightRatio: 0.28,
+};
+
 /**
  * Plate capture: live camera + on-device OCR (lib/ocr → Tesseract.js, ADR D3),
  * with a manual-entry fallback that is always one tap away. No image leaves the
@@ -77,9 +82,19 @@ export function PlateCapture({ onPlate }: { onPlate: (plate: string) => void }) 
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext("2d")?.drawImage(video, 0, 0);
+    const sourceWidth = video.videoWidth;
+    const sourceHeight = video.videoHeight;
+    const cropWidth = sourceWidth * PLATE_GUIDE.widthRatio;
+    const cropHeight = sourceHeight * PLATE_GUIDE.heightRatio;
+    const cropX = (sourceWidth - cropWidth) / 2;
+    const cropY = (sourceHeight - cropHeight) / 2;
+    const targetWidth = Math.max(1000, Math.round(cropWidth * 1.5));
+    const targetHeight = Math.round(targetWidth * (cropHeight / cropWidth));
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    canvas
+      .getContext("2d")
+      ?.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, targetWidth, targetHeight);
     setStatus("reading");
     setNotice(null);
     try {
@@ -121,7 +136,13 @@ export function PlateCapture({ onPlate }: { onPlate: (plate: string) => void }) 
           <>
             <video ref={videoRef} playsInline muted className="h-full w-full object-cover" />
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="h-[28%] w-[78%] rounded-2xl border-2 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
+              <div
+                className="rounded-2xl border-2 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]"
+                style={{
+                  height: `${PLATE_GUIDE.heightRatio * 100}%`,
+                  width: `${PLATE_GUIDE.widthRatio * 100}%`,
+                }}
+              />
             </div>
             <div className="absolute left-1/2 top-3 -translate-x-1/2 rounded-full bg-black/45 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
               {status === "reading"

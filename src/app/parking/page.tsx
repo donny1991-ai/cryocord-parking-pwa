@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LogIn, TriangleAlert, Flag, ScanLine, ShieldCheck, ChevronRight } from "lucide-react";
+import { ArrowRight, LogIn, TriangleAlert, Flag, ScanLine, ShieldCheck, ChevronRight } from "lucide-react";
 import { data } from "@/lib/data";
 import { MOCK_NOW } from "@/lib/mock";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -27,6 +27,37 @@ export default function DashboardPage() {
         series={series}
       />
 
+      {/* Primary actions */}
+      <section className="space-y-3">
+        <div className="flex items-end justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-wide text-brand">Gate actions</p>
+            <h2 className="text-xl font-black leading-tight text-ink">Choose workflow</h2>
+          </div>
+          <span className="rounded-full bg-brand-tint px-3 py-1 text-[11px] font-black text-brand">
+            Primary
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <ActionTile
+            href="/parking/entry"
+            icon={ScanLine}
+            title="New Entry"
+            subtitle="Capture plate and issue pass"
+            action="Start entry"
+            primary
+          />
+          <ActionTile
+            href="/parking/exit"
+            icon={LogIn}
+            iconClass="rotate-180"
+            title="Log Exit"
+            subtitle="Scan pass and confirm out"
+            action="Log exit"
+          />
+        </div>
+      </section>
+
       <div className="grid grid-cols-2 gap-3">
         <StatCard
           icon={LogIn}
@@ -35,24 +66,12 @@ export default function DashboardPage() {
           trend={{ dir: "up", label: "+18%" }}
           sublabel="vs. yesterday"
         />
-        <StatCard icon={TriangleAlert} label="Overstayed" value={c.overstayed} sublabel="> 4 hours on site" />
-      </div>
-
-      {/* Primary actions */}
-      <div className="grid grid-cols-2 gap-3">
-        <ActionTile
-          href="/parking/entry"
-          icon={ScanLine}
-          title="New Entry"
-          subtitle="Capture · issue pass"
-          primary
-        />
-        <ActionTile
-          href="/parking/exit"
-          icon={LogIn}
-          iconClass="rotate-180"
-          title="Log Exit"
-          subtitle="Scan · confirm out"
+        <StatCard
+          icon={TriangleAlert}
+          label="Overstayed"
+          value={c.overstayed}
+          sublabel="> 4 hours on site"
+          tone="muted"
         />
       </div>
 
@@ -112,6 +131,7 @@ function ActionTile({
   iconClass,
   title,
   subtitle,
+  action,
   primary = false,
 }: {
   href: string;
@@ -119,32 +139,54 @@ function ActionTile({
   iconClass?: string;
   title: string;
   subtitle: string;
+  action: string;
   primary?: boolean;
 }) {
   if (primary) {
     return (
       <Link
         href={href}
-        className="glass-red glass-interactive flex flex-col gap-3 rounded-3xl p-4"
+        className="group relative min-h-[156px] overflow-hidden rounded-xl border border-emerald-400/55 bg-gradient-to-br from-emerald-500 via-emerald-600 to-green-800 p-4 text-white shadow-[0_18px_42px_-18px_rgba(5,150,105,0.78)] transition-all duration-150 active:scale-[0.98]"
       >
-        <span className="relative z-10 flex h-11 w-11 items-center justify-center rounded-2xl bg-white/20 ring-1 ring-white/25">
-          <Icon className={`h-6 w-6 text-white ${iconClass ?? ""}`} />
-        </span>
-        <span className="relative z-10">
-          <span className="block text-base font-bold leading-tight">{title}</span>
-          <span className="block text-xs text-white/75">{subtitle}</span>
+        <span className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-white/8" />
+        <span className="relative z-10 flex h-full flex-col justify-between gap-5">
+          <span className="flex items-start justify-between gap-3">
+            <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/20 ring-1 ring-white/25">
+              <Icon className={`h-6 w-6 text-white ${iconClass ?? ""}`} />
+            </span>
+            <ArrowRight className="mt-2 h-5 w-5 text-white/80 transition-transform group-hover:translate-x-1" />
+          </span>
+          <span>
+            <span className="block text-xl font-black leading-none text-white">{title}</span>
+            <span className="mt-1.5 block text-sm font-medium text-white/78">{subtitle}</span>
+            <span className="mt-4 inline-flex items-center rounded-full bg-white px-2.5 py-1.5 text-[11px] font-black text-emerald-700">
+              {action}
+            </span>
+          </span>
         </span>
       </Link>
     );
   }
   return (
-    <Link href={href} className="glass glass-interactive flex flex-col gap-3 rounded-3xl p-4">
-      <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand/10">
-        <Icon className={`h-6 w-6 text-brand ${iconClass ?? ""}`} />
-      </span>
-      <span>
-        <span className="block text-base font-bold leading-tight text-ink">{title}</span>
-        <span className="block text-xs text-ink-faint">{subtitle}</span>
+    <Link
+      href={href}
+      className="group relative min-h-[156px] overflow-hidden rounded-xl border border-brand/45 bg-gradient-to-br from-brand via-brand-hover to-brand-dark p-4 text-white shadow-glass-red transition-all duration-150 active:scale-[0.98]"
+    >
+      <span className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-white/8" />
+      <span className="relative z-10 flex h-full flex-col justify-between gap-5">
+        <span className="flex items-start justify-between gap-3">
+          <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/18 ring-1 ring-white/25">
+            <Icon className={`h-6 w-6 text-white ${iconClass ?? ""}`} />
+          </span>
+          <ArrowRight className="mt-2 h-5 w-5 text-white/80 transition-transform group-hover:translate-x-1" />
+        </span>
+        <span>
+          <span className="block text-xl font-black leading-none text-white">{title}</span>
+          <span className="mt-1.5 block text-sm font-medium text-white/78">{subtitle}</span>
+          <span className="mt-4 inline-flex items-center rounded-full bg-white px-2.5 py-1.5 text-[11px] font-black text-brand">
+            {action}
+          </span>
+        </span>
       </span>
     </Link>
   );

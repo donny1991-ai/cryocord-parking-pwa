@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildPassMessage, toWaNumber, waLink } from "./whatsapp";
+import { buildPassMessage, toWaNumber, waLink, waShareLink } from "./whatsapp";
 
 describe("toWaNumber", () => {
   it("normalises local Malaysian mobile numbers", () => {
@@ -27,6 +27,12 @@ describe("waLink", () => {
 
   it("returns null when the contact number is unusable", () => {
     expect(waLink("—", "Hello")).toBeNull();
+  });
+});
+
+describe("waShareLink", () => {
+  it("builds an encoded WhatsApp share URL without a recipient", () => {
+    expect(waShareLink("Hello gate pass")).toBe("https://wa.me/?text=Hello%20gate%20pass");
   });
 });
 
