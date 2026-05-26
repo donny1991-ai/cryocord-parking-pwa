@@ -27,9 +27,11 @@ import { VISIT_TYPES, PURPOSES, type VisitType, type Purpose } from "@/lib/enums
 import { labelize } from "@/lib/labels";
 import { data } from "@/lib/data";
 import { cn } from "@/lib/utils";
+import { createDemoPassToken } from "@/lib/pass-token";
 import { buildPassMessage, waLink, waShareLink } from "@/lib/whatsapp";
 
 type Step = "capture" | "form" | "pass";
+type IssuedPass = ReturnType<typeof createDemoPassToken>;
 
 export function NewEntryFlow() {
   const [step, setStep] = useState<Step>("capture");
@@ -48,10 +50,13 @@ export function NewEntryFlow() {
   const [visitorIc, setVisitorIc] = useState("");
   const [origin, setOrigin] = useState("");
   const [copiedPassLink, setCopiedPassLink] = useState(false);
+  const [issued, setIssued] = useState<IssuedPass | null>(null);
   useEffect(() => setOrigin(window.location.origin), []);
 
   function selectPlate(p: string) {
     setPlate(p);
+    setIssued(null);
+    setCopiedPassLink(false);
     const veh = data.getVehicleByPlate(p);
     if (veh) {
       if (veh.ownerName && veh.ownerName !== "Unknown") setVisitorName(veh.ownerName);
@@ -63,14 +68,15 @@ export function NewEntryFlow() {
     setStep("form");
   }
 
-  // Demo issuance. Production: a server action writes the visit via withAudit()
-  // (same-transaction audit row) and returns the signed opaque token.
-  const issued = useMemo(() => {
-    const id = `v-${Date.now().toString(36)}`;
-    return { id, token: `cc-pass:${id}` };
-  }, []);
-
   const canIssue = plate && visitorName.trim() && (purpose !== "other" || purposeNotes.trim());
+
+  function issuePass() {
+    // Demo issuance. Production: a server action writes the visit via withAudit()
+    // (same-transaction audit row) and returns the signed opaque token.
+    setIssued(createDemoPassToken());
+    setCopiedPassLink(false);
+    setStep("pass");
+  }
 
   if (step === "capture") {
     return (
@@ -82,6 +88,7 @@ export function NewEntryFlow() {
   }
 
   if (step === "pass") {
+    if (!issued) return null;
     const passUrl = origin ? `${origin}/pass/${encodeURIComponent(issued.token)}` : undefined;
     const passValue = passUrl ?? issued.token;
     const passMessage = buildPassMessage({ visitorName, plate, visitType, validUntil: "24 Aug 2026", passUrl });
@@ -292,7 +299,7 @@ export function NewEntryFlow() {
         </p>
       </div>
 
-      <Button size="xl" className="w-full" disabled={!canIssue} onClick={() => setStep("pass")}>
+      <Button size="xl" className="w-full" disabled={!canIssue} onClick={issuePass}>
         <Sparkles className="h-5 w-5" />
         Issue Pass
       </Button>
