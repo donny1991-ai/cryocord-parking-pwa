@@ -5,10 +5,25 @@ import { cn } from "@/lib/utils";
 const fieldBase =
   "w-full rounded-2xl border border-white/60 bg-white/55 px-4 text-ink placeholder:text-ink-faint backdrop-blur-md transition-colors focus:border-brand/50 focus:bg-white/80 focus-visible:outline-none";
 
-export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
-  ({ className, ...props }, ref) => (
-    <input ref={ref} className={cn(fieldBase, "h-12", className)} {...props} />
-  ),
+interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
+  icon?: ReactNode;
+}
+
+export const Input = forwardRef<HTMLInputElement, InputProps>(
+  ({ className, icon, ...props }, ref) => {
+    if (!icon) {
+      return <input ref={ref} className={cn(fieldBase, "h-12", className)} {...props} />;
+    }
+
+    return (
+      <div className="relative">
+        <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-faint">
+          {icon}
+        </span>
+        <input ref={ref} className={cn(fieldBase, "h-12 pl-11", className)} {...props} />
+      </div>
+    );
+  },
 );
 Input.displayName = "Input";
 

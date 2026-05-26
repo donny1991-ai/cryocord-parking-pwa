@@ -33,17 +33,19 @@ export function OccupancyHero({
   const { line, area, last } = sparkPaths(series);
 
   return (
-    <div className="glass-red rounded-4xl p-6">
+    <div className="relative overflow-hidden rounded-4xl border border-yellow-600/35 bg-gradient-to-br from-[#F4C542] via-[#D99A16] to-[#8F5E00] p-6 text-white shadow-[0_24px_54px_-22px_rgba(143,94,0,0.72)]">
+      <span className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/12" />
+      <span className="absolute bottom-0 left-0 h-28 w-full bg-gradient-to-t from-black/18 to-transparent" />
       <div className="relative z-10">
         <div className="flex items-center justify-between">
-          <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-white/85">
+          <span className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-wider text-white/82">
             <span className="relative flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full animate-pulse-ring rounded-full bg-white" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
             </span>
             Currently inside
           </span>
-          <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/25">
+          <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/18 ring-1 ring-white/25">
             <Car className="h-5 w-5 text-white" />
           </span>
         </div>
@@ -52,13 +54,13 @@ export function OccupancyHero({
           <span className="text-6xl font-bold leading-none tabular-nums tracking-tight">
             {currentlyInside}
           </span>
-          <span className="mb-1 text-sm text-white/70">vehicles</span>
+          <span className="mb-1 text-sm font-medium text-white/72">vehicles</span>
         </div>
 
         {/* Breakdown */}
         <div className="mt-4 flex flex-wrap gap-2">
           <Breakdown label="Normal" value={normal} dot="bg-emerald-300" />
-          <Breakdown label="Overstayed" value={over} dot="bg-amber-300" />
+          <Breakdown label="Overstayed" value={over} dot="bg-stone-200" />
           <Breakdown label="Flagged" value={flagged} dot="bg-white" />
         </div>
 
@@ -67,7 +69,7 @@ export function OccupancyHero({
           <svg viewBox="0 0 100 32" preserveAspectRatio="none" className="h-10 w-full overflow-visible">
             <defs>
               <linearGradient id="heroSpark" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#fff" stopOpacity="0.28" />
+                <stop offset="0%" stopColor="#fff" stopOpacity="0.26" />
                 <stop offset="100%" stopColor="#fff" stopOpacity="0" />
               </linearGradient>
             </defs>
@@ -75,7 +77,7 @@ export function OccupancyHero({
             <path
               d={line}
               fill="none"
-              stroke="rgba(255,255,255,0.9)"
+              stroke="rgba(255,255,255,0.84)"
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -83,7 +85,7 @@ export function OccupancyHero({
             />
             {last && <circle cx={last[0]} cy={last[1]} r="2.4" fill="#fff" vectorEffect="non-scaling-stroke" />}
           </svg>
-          <p className="mt-1 text-[11px] text-white/60">Occupancy · today 08:00–14:00</p>
+          <p className="mt-1 text-[11px] font-medium text-white/62">Occupancy · today 08:00–14:00</p>
         </div>
       </div>
     </div>
@@ -92,7 +94,7 @@ export function OccupancyHero({
 
 function Breakdown({ label, value, dot }: { label: string; value: number; dot: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/12 px-2.5 py-1 text-xs font-semibold ring-1 ring-white/15">
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/14 px-2.5 py-1 text-xs font-bold text-white/88 ring-1 ring-white/18">
       <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
       {value} {label}
     </span>

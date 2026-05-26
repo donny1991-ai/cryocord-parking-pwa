@@ -10,6 +10,7 @@ export function StatCard({
   sublabel,
   trend,
   hero = false,
+  tone = "default",
   className,
 }: {
   icon: LucideIcon;
@@ -18,16 +19,23 @@ export function StatCard({
   sublabel?: string;
   trend?: { dir: "up" | "down"; label: string };
   hero?: boolean;
+  tone?: "default" | "muted";
   className?: string;
 }) {
+  const muted = tone === "muted";
+
   return (
-    <GlassCard variant={hero ? "red" : "default"} padding="md" className={className}>
+    <GlassCard
+      variant={hero ? "red" : "default"}
+      padding="md"
+      className={cn(muted && "border-stone-200/70 bg-stone-100/65 shadow-none", className)}
+    >
       <div className="relative z-10">
         <div className="flex items-start justify-between">
           <span
             className={cn(
               "text-xs font-semibold uppercase tracking-wide",
-              hero ? "text-white/80" : "text-ink-faint",
+              hero ? "text-white/80" : muted ? "text-stone-500" : "text-ink-faint",
             )}
           >
             {label}
@@ -35,15 +43,20 @@ export function StatCard({
           <span
             className={cn(
               "flex h-9 w-9 items-center justify-center rounded-xl",
-              hero ? "bg-white/20" : "bg-brand/10",
+              hero ? "bg-white/20" : muted ? "bg-stone-200/80" : "bg-brand/10",
             )}
           >
-            <Icon className={cn("h-5 w-5", hero ? "text-white" : "text-brand")} />
+            <Icon className={cn("h-5 w-5", hero ? "text-white" : muted ? "text-stone-500" : "text-brand")} />
           </span>
         </div>
 
         <div className="mt-3 flex items-end gap-2">
-          <span className={cn("text-3xl font-bold tabular-nums leading-none", hero ? "text-white" : "text-ink")}>
+          <span
+            className={cn(
+              "text-3xl font-bold tabular-nums leading-none",
+              hero ? "text-white" : muted ? "text-stone-700" : "text-ink",
+            )}
+          >
             {value}
           </span>
           {trend && (
@@ -62,7 +75,9 @@ export function StatCard({
         </div>
 
         {sublabel && (
-          <div className={cn("mt-1 text-xs", hero ? "text-white/75" : "text-ink-faint")}>{sublabel}</div>
+          <div className={cn("mt-1 text-xs", hero ? "text-white/75" : muted ? "text-stone-500" : "text-ink-faint")}>
+            {sublabel}
+          </div>
         )}
       </div>
     </GlassCard>

@@ -38,7 +38,12 @@ export async function getCameraStream(): Promise<MediaStream> {
   const md = navigator.mediaDevices;
   try {
     return await md.getUserMedia({
-      video: { facingMode: { ideal: "environment" } },
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        aspectRatio: { ideal: 16 / 9 },
+      },
       audio: false,
     });
   } catch (err) {

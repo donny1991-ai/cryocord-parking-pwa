@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { Download, Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { VisitRow } from "./visit-row";
 import { data } from "@/lib/data";
@@ -9,6 +10,7 @@ import { MOCK_NOW } from "@/lib/mock";
 import { STATUSES } from "@/lib/enums";
 import { statusLabel } from "@/lib/labels";
 import { cn, normalisePlate } from "@/lib/utils";
+import { downloadVisitLogExcel } from "@/lib/visit-export";
 
 type Filter = "all" | (typeof STATUSES)[number];
 
@@ -27,6 +29,11 @@ export function VisitsList() {
   }, [all, query, filter]);
 
   const filters: Filter[] = ["all", ...STATUSES];
+
+  function exportExcel() {
+    const date = new Date().toISOString().slice(0, 10);
+    downloadVisitLogExcel(filtered, `cryocord-visitor-log-${date}.xls`);
+  }
 
   return (
     <div className="space-y-4">
@@ -57,7 +64,13 @@ export function VisitsList() {
         ))}
       </div>
 
-      <p className="px-1 text-xs font-semibold text-ink-faint">{filtered.length} visits</p>
+      <div className="flex items-center justify-between gap-3 px-1">
+        <p className="text-xs font-semibold text-ink-faint">{filtered.length} visits</p>
+        <Button variant="outline" size="sm" className="bg-white/65" disabled={filtered.length === 0} onClick={exportExcel}>
+          <Download className="h-4 w-4" />
+          Excel
+        </Button>
+      </div>
 
       <div className="space-y-2.5">
         {filtered.map((v) => (

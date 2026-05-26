@@ -14,6 +14,7 @@ import { MOCK_NOW } from "@/lib/mock";
 import type { Visit } from "@/lib/types";
 import { durationSince, formatTime, normalisePlate } from "@/lib/utils";
 import { visitTypeLabel } from "@/lib/labels";
+import { extractDemoVisitId } from "@/lib/pass-token";
 
 // QR scanner is camera-only and browser-only — load it lazily, no SSR.
 const QrScanner = dynamic(() => import("./qr-scanner").then((m) => m.QrScanner), {
@@ -44,8 +45,8 @@ export function ExitFlow() {
   }, [query, inside]);
 
   function resolveToken(token: string) {
-    // Production: verifyVisitToken(token) → visitId. Demo: parse trailing id.
-    const id = token.split(/[:.]/).pop() ?? "";
+    // Production: verifyVisitToken(token) → visitId. Demo: parse raw or URL tokens.
+    const id = extractDemoVisitId(token);
     const v = data.getVisit(id);
     setScanning(false);
     if (v) setSelected(v);
