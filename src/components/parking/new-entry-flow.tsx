@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { BadgeCheck, CheckCircle2, Send, ShieldCheck, Sparkles } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -33,11 +33,10 @@ export function NewEntryFlow() {
   const [hostStaffId, setHostStaffId] = useState("");
   const [showIc, setShowIc] = useState(false);
   const [visitorIc, setVisitorIc] = useState("");
-  const [origin, setOrigin] = useState("");
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
   const [issued, setIssued] = useState<{ id: string; token: string } | null>(null);
   const [issuing, setIssuing] = useState(false);
   const [issueError, setIssueError] = useState<string | null>(null);
-  useEffect(() => setOrigin(window.location.origin), []);
 
   function selectPlate(p: string) {
     setPlate(p);
@@ -51,11 +50,6 @@ export function NewEntryFlow() {
     }
     setStep("form");
   }
-
-  const demoIssued = useMemo(() => {
-    const id = `v-${Date.now().toString(36)}`;
-    return { id, token: `cc-pass:${id}` };
-  }, []);
 
   const canIssue = plate && visitorName.trim() && visitorContact.trim() && (purpose !== "other" || purposeNotes.trim());
 
@@ -93,7 +87,8 @@ export function NewEntryFlow() {
           ? `${error.message} Using a local demo pass for now.`
           : "Using a local demo pass for now.",
       );
-      setIssued(demoIssued);
+      const id = `v-${crypto.randomUUID()}`;
+      setIssued({ id, token: `cc-pass:${id}` });
       setStep("pass");
     } finally {
       setIssuing(false);
@@ -110,7 +105,7 @@ export function NewEntryFlow() {
   }
 
   if (step === "pass") {
-    const activeIssued = issued ?? demoIssued;
+    const activeIssued = issued ?? { id: "demo", token: "cc-pass:demo" };
     const passUrl = origin ? `${origin}/pass/${encodeURIComponent(activeIssued.token)}` : undefined;
     const waHref = waLink(
       visitorContact,

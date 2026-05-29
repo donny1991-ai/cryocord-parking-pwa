@@ -19,8 +19,9 @@ import { data } from "@/lib/data";
 import { formatDateTime } from "@/lib/utils";
 import { purposeLabel, visitTypeLabel } from "@/lib/labels";
 
-export default function VisitDetailPage({ params }: { params: { id: string } }) {
-  const visit = data.getVisit(params.id);
+export default async function VisitDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const visit = data.getVisit(id);
   if (!visit) notFound();
 
   const host = visit.hostStaffId

@@ -64,7 +64,6 @@ export function PlateCapture({ onPlate }: { onPlate: (plate: string) => void }) 
       }
     }
 
-    setStatus("starting");
     start();
     return () => {
       cancelled = true;

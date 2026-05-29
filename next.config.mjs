@@ -20,9 +20,7 @@ const withPWA = withPWAInit({
 const nextConfig = {
   reactStrictMode: true,
   output: "standalone",
-  experimental: {
-    serverComponentsExternalPackages: ["typeorm", "pg"],
-  },
+  serverExternalPackages: ["typeorm", "pg"],
   images: {
     // Azure Blob (MY West) is the only allowed image origin in production.
     remotePatterns: [
