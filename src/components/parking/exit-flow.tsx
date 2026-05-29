@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { StatusPill, Chip } from "@/components/ui/badge";
 import { checkCameraSupport } from "@/lib/camera";
 import { data } from "@/lib/data";
-import { MOCK_NOW } from "@/lib/mock";
+import { MOCK_GUARD_ID, MOCK_NOW } from "@/lib/mock";
 import type { Visit } from "@/lib/types";
 import { durationSince, formatTime, normalisePlate } from "@/lib/utils";
 import { visitTypeLabel } from "@/lib/labels";
@@ -43,8 +43,42 @@ export function ExitFlow() {
     );
   }, [query, inside]);
 
-  function resolveToken(token: string) {
-    // Production: verifyVisitToken(token) → visitId. Demo: parse trailing id.
+  async function resolveToken(token: string) {
+    try {
+      const response = await fetch("/api/visitors/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, action: "check_out", guardId: MOCK_GUARD_ID }),
+      });
+
+      if (response.ok) {
+        const payload = await response.json();
+        const visitor = payload.visitor;
+        const v: Visit = {
+          id: visitor.id,
+          plate: visitor.vehicleNumber,
+          visitorName: visitor.name,
+          visitorContact: visitor.phoneNumber,
+          visitType: visitor.typeCode as Visit["visitType"],
+          purpose: "other",
+          entryTime: visitor.checkedIn ?? new Date().toISOString(),
+          entryGuardId: MOCK_GUARD_ID,
+          exitTime: visitor.checkedOut ?? new Date().toISOString(),
+          exitGuardId: MOCK_GUARD_ID,
+          status: "exited",
+          createdAt: visitor.createdAt,
+        };
+
+        setScanning(false);
+        setSelected(v);
+        setExited(true);
+        return;
+      }
+    } catch {
+      // Keep the demo scanner path alive when no database is configured.
+    }
+
+    // Demo fallback: parse trailing id from cc-pass:v-1001 / demo.opaque.v-1001.
     const id = token.split(/[:.]/).pop() ?? "";
     const v = data.getVisit(id);
     setScanning(false);

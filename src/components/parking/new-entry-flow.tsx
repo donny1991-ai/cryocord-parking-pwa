@@ -14,6 +14,7 @@ import { labelize } from "@/lib/labels";
 import { data } from "@/lib/data";
 import { cn } from "@/lib/utils";
 import { buildPassMessage, waLink } from "@/lib/whatsapp";
+import { MOCK_GUARD_ID } from "@/lib/mock";
 
 type Step = "capture" | "form" | "pass";
 
@@ -26,13 +27,16 @@ export function NewEntryFlow() {
 
   const [visitorName, setVisitorName] = useState("");
   const [visitorContact, setVisitorContact] = useState("");
-  const [visitType, setVisitType] = useState<VisitType>("visitor");
+  const [visitType, setVisitType] = useState<VisitType>("guest");
   const [purpose, setPurpose] = useState<Purpose>("meeting");
   const [purposeNotes, setPurposeNotes] = useState("");
   const [hostStaffId, setHostStaffId] = useState("");
   const [showIc, setShowIc] = useState(false);
   const [visitorIc, setVisitorIc] = useState("");
   const [origin, setOrigin] = useState("");
+  const [issued, setIssued] = useState<{ id: string; token: string } | null>(null);
+  const [issuing, setIssuing] = useState(false);
+  const [issueError, setIssueError] = useState<string | null>(null);
   useEffect(() => setOrigin(window.location.origin), []);
 
   function selectPlate(p: string) {
@@ -48,14 +52,53 @@ export function NewEntryFlow() {
     setStep("form");
   }
 
-  // Demo issuance. Production: a server action writes the visit via withAudit()
-  // (same-transaction audit row) and returns the signed opaque token.
-  const issued = useMemo(() => {
+  const demoIssued = useMemo(() => {
     const id = `v-${Date.now().toString(36)}`;
     return { id, token: `cc-pass:${id}` };
   }, []);
 
   const canIssue = plate && visitorName.trim() && visitorContact.trim() && (purpose !== "other" || purposeNotes.trim());
+
+  async function issuePass() {
+    if (!canIssue) return;
+
+    setIssuing(true);
+    setIssueError(null);
+
+    try {
+      const response = await fetch("/api/visitors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: visitorName,
+          phoneNumber: visitorContact,
+          vehicleNumber: plate,
+          typeCode: visitType,
+          remarks: purposeNotes || undefined,
+          guardId: MOCK_GUARD_ID,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error ?? "Visitor pass could not be saved.");
+      }
+
+      const payload = await response.json();
+      setIssued({ id: payload.visitor.id, token: payload.token });
+      setStep("pass");
+    } catch (error) {
+      setIssueError(
+        error instanceof Error
+          ? `${error.message} Using a local demo pass for now.`
+          : "Using a local demo pass for now.",
+      );
+      setIssued(demoIssued);
+      setStep("pass");
+    } finally {
+      setIssuing(false);
+    }
+  }
 
   if (step === "capture") {
     return (
@@ -67,7 +110,8 @@ export function NewEntryFlow() {
   }
 
   if (step === "pass") {
-    const passUrl = origin ? `${origin}/pass/${encodeURIComponent(issued.token)}` : undefined;
+    const activeIssued = issued ?? demoIssued;
+    const passUrl = origin ? `${origin}/pass/${encodeURIComponent(activeIssued.token)}` : undefined;
     const waHref = waLink(
       visitorContact,
       buildPassMessage({ visitorName, plate, visitType, validUntil: "24 Aug 2026", passUrl }),
@@ -77,15 +121,20 @@ export function NewEntryFlow() {
         <div className="flex flex-col items-center gap-1 text-center animate-fade-up">
           <CheckCircle2 className="h-10 w-10 text-emerald-500" />
           <h2 className="text-xl font-bold text-ink">Pass issued</h2>
-          <p className="text-sm text-ink-faint">Entry logged to the parking register.</p>
+          <p className="text-sm text-ink-faint">Scan this pass at the gate to check in.</p>
         </div>
         <QrPass
-          token={issued.token}
+          token={activeIssued.token}
           plate={plate}
           visitorName={visitorName}
           visitType={visitType}
           validUntil="24 Aug 2026"
         />
+        {issueError && (
+          <p className="mx-auto max-w-sm rounded-2xl bg-amber-500/12 px-3.5 py-2 text-center text-xs font-semibold text-amber-700">
+            {issueError}
+          </p>
+        )}
         <div className="mx-auto flex max-w-sm flex-col gap-2.5">
           {waHref ? (
             <a
@@ -207,9 +256,9 @@ export function NewEntryFlow() {
         </p>
       </div>
 
-      <Button size="xl" className="w-full" disabled={!canIssue} onClick={() => setStep("pass")}>
+      <Button size="xl" className="w-full" disabled={!canIssue || issuing} onClick={issuePass}>
         <Sparkles className="h-5 w-5" />
-        Issue Pass
+        {issuing ? "Issuing..." : "Issue Pass"}
       </Button>
     </div>
   );

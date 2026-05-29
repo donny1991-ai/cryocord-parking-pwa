@@ -1,0 +1,30 @@
+services:
+  app:
+    build:
+      context: .
+      target: runner
+    image: cryocord-parking-pwa:local
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:54322/postgres}
+      DATABASE_SSL: "false"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  migrate:
+    build:
+      context: .
+      target: migrator
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:54322/postgres}
+      DATABASE_SSL: "false"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    profiles:
+      - tools

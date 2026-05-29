@@ -10,35 +10,51 @@ import { SignJWT, jwtVerify } from "jose";
  * happen without invalidating passes signed under the previous key.
  */
 
-const KEY_ID = process.env.PARKING_QR_KEY_ID ?? "dev";
-// Dev-only fallback so the scaffold runs without Key Vault. Real key is injected.
-const SIGNING_KEY = new TextEncoder().encode(
-  process.env.PARKING_QR_SIGNING_KEY ?? "dev-only-insecure-key-rotate-in-prod",
-);
+const DEV_SIGNING_KEY = "dev-only-insecure-key-rotate-in-prod";
 
 const NINETY_DAYS_S = 90 * 24 * 60 * 60;
 
 export interface PassClaims {
   visitId: string;
+  tokenId?: string;
+}
+
+export function assertQrSigningConfigured() {
+  if (process.env.NODE_ENV === "production" && !process.env.PARKING_QR_SIGNING_KEY) {
+    throw new Error("PARKING_QR_SIGNING_KEY is required in production.");
+  }
+}
+
+function getSigningKey() {
+  assertQrSigningConfigured();
+  return new TextEncoder().encode(process.env.PARKING_QR_SIGNING_KEY ?? DEV_SIGNING_KEY);
+}
+
+function getKeyId() {
+  return process.env.PARKING_QR_KEY_ID ?? "dev";
 }
 
 /** Sign an opaque pass token for a visit. Server-side only. */
-export async function signVisitToken(visitId: string): Promise<string> {
+export async function signVisitToken(visitId: string, tokenId?: string): Promise<string> {
   return new SignJWT({ visitId } satisfies PassClaims)
-    .setProtectedHeader({ alg: "HS256", kid: KEY_ID })
+    .setProtectedHeader({ alg: "HS256", kid: getKeyId() })
     .setIssuedAt()
     .setIssuer("cryocord-parking")
+    .setJti(tokenId ?? crypto.randomUUID())
     .setExpirationTime(`${NINETY_DAYS_S}s`)
-    .sign(SIGNING_KEY);
+    .sign(getSigningKey());
 }
 
 /** Verify + decode a scanned pass token. Throws if invalid/expired. */
 export async function verifyVisitToken(token: string): Promise<PassClaims> {
-  const { payload } = await jwtVerify(token, SIGNING_KEY, {
+  const { payload } = await jwtVerify(token, getSigningKey(), {
     issuer: "cryocord-parking",
   });
   if (typeof payload.visitId !== "string") {
     throw new Error("Pass token missing visitId");
   }
-  return { visitId: payload.visitId };
+  return {
+    visitId: payload.visitId,
+    tokenId: typeof payload.jti === "string" ? payload.jti : undefined,
+  };
 }

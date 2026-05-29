@@ -5,13 +5,10 @@
  */
 
 export const VISIT_TYPES = [
-  "visitor",
+  "guest",
   "vendor",
-  "courier",
-  "patient",
+  "client",
   "staff",
-  "contractor",
-  "vip",
 ] as const;
 export type VisitType = (typeof VISIT_TYPES)[number];
 
