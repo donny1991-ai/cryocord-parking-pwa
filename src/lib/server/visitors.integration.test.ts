@@ -1,22 +1,37 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { NextRequest } from "next/server";
+import { POST as createVisitorEndpoint } from "@/app/api/visitors/route";
+import { POST as scanVisitorEndpoint } from "@/app/api/visitors/scan/route";
 import { AppDataSource } from "@/db/data-source";
 import { VisitorScanEventSchema, VisitorSchema } from "@/db/entities";
 import { createVisitorInputFactory } from "@/test/factories/visitor.factory";
+import { refreshParkingTestDatabase } from "@/test/refresh-database";
+import { seedParkingUser } from "@/test/seeders/parking-user.seeder";
 import { seedVisitorTypes } from "@/test/seeders/visitor-type.seeder";
+import { signTestSupabaseAccessToken } from "@/test/auth-token";
 import { signVisitToken } from "@/lib/qr";
 import { createVisitorPass, scanVisitorPass } from "./visitors";
+
+function jsonRequest(path: string, body: unknown, token?: string) {
+  return new NextRequest(`http://localhost${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+}
 
 describe("visitor pass database flow", () => {
   beforeAll(async () => {
     if (!AppDataSource.isInitialized) {
       await AppDataSource.initialize();
     }
-    await AppDataSource.runMigrations();
-    await seedVisitorTypes(AppDataSource.manager);
   });
 
   beforeEach(async () => {
-    await AppDataSource.query(`TRUNCATE TABLE "parking"."visitor_scan_events", "parking"."visitors" RESTART IDENTITY CASCADE`);
+    await refreshParkingTestDatabase(AppDataSource);
     await seedVisitorTypes(AppDataSource.manager);
   });
 
@@ -199,5 +214,90 @@ describe("visitor pass database flow", () => {
     const checkedIn = await scanVisitorPass({ token: second.token, action: "auto" });
 
     expect(checkedIn.status).toBe("checked_in");
+  });
+
+  it("rejects unauthenticated visitor endpoint requests", async () => {
+    const response = await createVisitorEndpoint(
+      jsonRequest("/api/visitors", createVisitorInputFactory({ typeCode: "guest" })),
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Authentication is required.",
+    });
+  });
+
+  it("rejects authenticated users without an active parking profile", async () => {
+    const user = await seedParkingUser(AppDataSource.manager, { active: false });
+    const token = await signTestSupabaseAccessToken(user.id);
+
+    const response = await createVisitorEndpoint(
+      jsonRequest("/api/visitors", createVisitorInputFactory({ typeCode: "vendor" }), token),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Parking access is not enabled for this account.",
+    });
+  });
+
+  it("creates visitor passes through the authenticated endpoint and ignores spoofed guard ids", async () => {
+    const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
+    const token = await signTestSupabaseAccessToken(guard.id);
+
+    const response = await createVisitorEndpoint(
+      jsonRequest(
+        "/api/visitors",
+        {
+          ...createVisitorInputFactory({ typeCode: "client" }),
+          guardId: "spoofed-client-value",
+        },
+        token,
+      ),
+    );
+
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.token).toEqual(expect.any(String));
+    expect(payload.visitor.status).toBe("pending");
+
+    const visitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: payload.visitor.id });
+    expect(visitor.createdBy).toBe(guard.id);
+  });
+
+  it("scans visitor passes through the authenticated endpoint and records the authenticated guard", async () => {
+    const guard = await seedParkingUser(AppDataSource.manager, { role: "supervisor" });
+    const token = await signTestSupabaseAccessToken(guard.id);
+    const issuedResponse = await createVisitorEndpoint(
+      jsonRequest("/api/visitors", createVisitorInputFactory({ typeCode: "guest" }), token),
+    );
+    const issued = await issuedResponse.json();
+
+    const response = await scanVisitorEndpoint(
+      jsonRequest(
+        "/api/visitors/scan",
+        {
+          token: issued.token,
+          action: "check_in",
+          guardId: "spoofed-client-value",
+        },
+        token,
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      visitor: {
+        status: "checked_in",
+      },
+    });
+
+    const checkInEvent = await AppDataSource.manager.findOneByOrFail(VisitorScanEventSchema, {
+      eventType: "check_in",
+    });
+    const visitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: issued.visitor.id });
+
+    expect(checkInEvent.guardId).toBe(guard.id);
+    expect(visitor.checkedInBy).toBe(guard.id);
   });
 });

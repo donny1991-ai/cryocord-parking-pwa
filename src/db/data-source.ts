@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import dotenv from "dotenv";
 import { DataSource } from "typeorm";
+import { ParkingUserSchema } from "./entities/parking-user.entity";
 import { VisitorScanEventSchema } from "./entities/visitor-scan-event.entity";
 import { VisitorSchema } from "./entities/visitor.entity";
 import { VisitorTypeSchema } from "./entities/visitor-type.entity";
@@ -29,7 +30,7 @@ if (process.env.NODE_ENV === "test") {
 export const AppDataSource = new DataSource({
   type: "postgres",
   url: databaseUrl,
-  entities: [VisitorTypeSchema, VisitorSchema, VisitorScanEventSchema],
+  entities: [ParkingUserSchema, VisitorTypeSchema, VisitorSchema, VisitorScanEventSchema],
   migrations: ["src/db/migrations/*.{ts,js}"],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,
