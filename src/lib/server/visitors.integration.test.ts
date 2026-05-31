@@ -10,6 +10,7 @@ import { seedParkingUser } from "@/test/seeders/parking-user.seeder";
 import { seedVisitorTypes } from "@/test/seeders/visitor-type.seeder";
 import { signTestSupabaseAccessToken } from "@/test/auth-token";
 import { signVisitToken } from "@/lib/qr";
+import { getParkingSnapshot, getVisitById } from "./parking-data";
 import { createVisitorPass, scanVisitorPass } from "./visitors";
 
 function jsonRequest(path: string, body: unknown, token?: string) {
@@ -265,6 +266,35 @@ describe("visitor pass database flow", () => {
     expect(visitor.createdBy).toBe(guard.id);
   });
 
+  it("can check in visitor passes immediately when the entry endpoint requests it", async () => {
+    const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
+    const token = await signTestSupabaseAccessToken(guard.id);
+
+    const response = await createVisitorEndpoint(
+      jsonRequest(
+        "/api/visitors",
+        {
+          ...createVisitorInputFactory({ typeCode: "guest" }),
+          checkInOnCreate: true,
+        },
+        token,
+      ),
+    );
+
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.visitor.status).toBe("checked_in");
+    expect(payload.visitor.checkedIn).toEqual(expect.any(String));
+
+    const visitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: payload.visitor.id });
+    expect(visitor.checkedInBy).toBe(guard.id);
+
+    const checkInEvents = await AppDataSource.manager.count(VisitorScanEventSchema, {
+      where: { visitorId: visitor.id, eventType: "check_in" },
+    });
+    expect(checkInEvents).toBe(1);
+  });
+
   it("scans visitor passes through the authenticated endpoint and records the authenticated guard", async () => {
     const guard = await seedParkingUser(AppDataSource.manager, { role: "supervisor" });
     const token = await signTestSupabaseAccessToken(guard.id);
@@ -299,5 +329,72 @@ describe("visitor pass database flow", () => {
 
     expect(checkInEvent.guardId).toBe(guard.id);
     expect(visitor.checkedInBy).toBe(guard.id);
+  });
+
+  it("supports pre-registered QR arrival check-in through the authenticated endpoint", async () => {
+    const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
+    const token = await signTestSupabaseAccessToken(guard.id);
+
+    const issuedResponse = await createVisitorEndpoint(
+      jsonRequest(
+        "/api/visitors",
+        {
+          ...createVisitorInputFactory({
+            name: "Pre Registered Visitor",
+            vehicleNumber: "PRE 4321",
+            typeCode: "guest",
+          }),
+          checkInOnCreate: false,
+        },
+        token,
+      ),
+    );
+
+    expect(issuedResponse.status).toBe(201);
+    const issued = await issuedResponse.json();
+    expect(issued.visitor.status).toBe("pending");
+    expect(issued.visitor.checkedIn).toBeNull();
+
+    const arrivalResponse = await scanVisitorEndpoint(
+      jsonRequest("/api/visitors/scan", { token: issued.token, action: "check_in" }, token),
+    );
+
+    expect(arrivalResponse.status).toBe(200);
+    await expect(arrivalResponse.json()).resolves.toMatchObject({
+      visitor: {
+        vehicleNumber: "PRE 4321",
+        status: "checked_in",
+        checkedIn: expect.any(String),
+      },
+    });
+
+    const visitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: issued.visitor.id });
+    expect(visitor.checkedInBy).toBe(guard.id);
+  });
+
+  it("keeps pending and checked-out visits out of the live snapshot while retaining the QR token", async () => {
+    const pending = await createVisitorPass(
+      createVisitorInputFactory({ vehicleNumber: "PEND 100", typeCode: "guest" }),
+    );
+    const active = await createVisitorPass(
+      createVisitorInputFactory({ vehicleNumber: "LIVE 200", typeCode: "vendor" }),
+    );
+
+    await scanVisitorPass({ token: active.token, action: "check_in", guardId: "guard-test" });
+
+    let snapshot = await getParkingSnapshot();
+    expect(snapshot.insideVisits.map((visit) => visit.plate)).toEqual(["LIVE 200"]);
+
+    await scanVisitorPass({ token: active.token, action: "check_out", guardId: "guard-test" });
+
+    snapshot = await getParkingSnapshot();
+    expect(snapshot.insideVisits).toHaveLength(0);
+
+    const pendingDetail = await getVisitById(pending.visitor.id);
+    expect(pendingDetail).toMatchObject({
+      plate: "PEND 100",
+      status: "pending",
+      qrToken: expect.any(String),
+    });
   });
 });

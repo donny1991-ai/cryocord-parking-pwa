@@ -4,9 +4,9 @@ Guard-facing Progressive Web App for **CryoCord HQ car park access control** —
 capture, QR visitor passes, and live occupancy. It is the `parking` module of the
 CryoCord Workplace OS / ICS.
 
-> **Status:** Front-end scaffold with deterministic **mock data**. All screens and
-> client features work; the data layer and external integrations are stubbed behind
-> clean seams (see [What's wired vs. stubbed](#whats-wired-vs-stubbed)).
+> **Status:** DB-backed guard console with email OTP login, TypeORM migrations,
+> parking-only fresh rebuild tooling, starter/demo seeders, QR visitor passes,
+> and real check-in/check-out mutations.
 
 ---
 
@@ -86,11 +86,57 @@ DATABASE_SSL=true
 PARKING_QR_KEY_ID=<current-key-id>
 PARKING_QR_SIGNING_KEY=<secret-from-key-vault>
 NEXT_PUBLIC_APP_URL=https://<your-container-app-hostname>
+SMTP_HOST=mail.cryocord.com.my
+SMTP_PORT=465
+SMTP_USER=aiprojects@cryocord.com.my
+SMTP_PASS=<smtp-password>
 ```
 
 Run `npm run db:migration:run` from CI/CD or a one-off migration container before
 promoting a new revision. Avoid running migrations automatically in every app
 container startup.
+
+Seed the initial parking admin after migrations:
+
+```bash
+npm run db:seed
+```
+
+The default starter admin uses `PARKING_ADMIN_EMAIL`, `ADMIN_EMAIL`, or `SMTP_USER`
+and is inserted as the `admin` parking role.
+
+For a Laravel-style parking-only fresh rebuild:
+
+```bash
+npm run db:migrate:fresh
+npm run db:migrate:fresh:seed
+npm run db:migrate:fresh:demo
+```
+
+In Docker, run it through the tooling image so TypeScript migration dependencies
+are available:
+
+```bash
+docker compose --profile tools run --rm migrate-fresh
+docker compose --profile tools run --rm migrate-fresh-seed
+docker compose --profile tools run --rm migrate-fresh-demo
+```
+
+The production app image also includes the DB maintenance tooling, so the same npm
+scripts can run from an interactive `/app` shell inside the container after rebuild.
+Because the app image runs with `NODE_ENV=production`, fresh rebuilds require:
+
+```bash
+CONFIRM_PARKING_MIGRATE_FRESH=true npm run db:migrate:fresh
+CONFIRM_PARKING_MIGRATE_FRESH=true npm run db:migrate:fresh:seed
+CONFIRM_PARKING_MIGRATE_FRESH=true npm run db:migrate:fresh:demo
+```
+
+This deletes only Supabase `auth.users` rows linked by `parking.users`, drops the
+`parking` schema and TypeORM migration history, then reruns migrations. In production,
+set `CONFIRM_PARKING_MIGRATE_FRESH=true` to acknowledge the destructive operation.
+The `:demo` variant also seeds an admin, a guard, and representative live, overstay,
+flagged, and exited visitor records for walkthroughs.
 
 ## Database
 
@@ -106,6 +152,9 @@ The initial migration creates:
 | `parking.visitor_types` | Seeded lookup: `guest`, `vendor`, `client`, `staff` |
 | `parking.visitors` | Visitor identity, vehicle number, pending/check-in/check-out timestamps, remarks, QR token id |
 | `parking.visitor_scan_events` | Append-only scan history for pass issuance, check-in, check-out, rejected scans |
+| `parking.users` | Parking staff profiles linked to Supabase `auth.users`; roles are `guard`, `supervisor`, `admin` |
+| `parking.auth_otps` | Short-lived 6-digit email OTP login challenges |
+| `parking.vehicles` | Known vehicle registry and blacklist seed data for guard workflows |
 
 QR codes contain a signed opaque token with the visitor primary key as a reference and
 a JWT id (`jti`). They do not encode name, phone, or vehicle number. Scanning the pass
@@ -170,10 +219,10 @@ src/
     parking/                   Screen-specific: new-entry-flow, plate-capture,
                                qr-pass, qr-scanner, exit-flow, occupancy-hero,
                                visits-list, vehicles-admin, visit-row, pass-view
-  lib/
+    lib/
     enums.ts                   Single source of truth: visit_type, purpose, status…
     types.ts  labels.ts        Domain types + human labels
-    mock.ts   data.ts          Demo data + the single data-access seam (data.*)
+    server/parking-data.ts     DB-backed read model for dashboard/log/admin views
     qr.ts                      Opaque signed pass token (sign/verify)
     ocr.ts                     On-device plate OCR (Tesseract)
     camera.ts                  getUserMedia helpers + error messaging
@@ -185,9 +234,10 @@ public/
   icons/                       App icons (SVG)
 ```
 
-**Good places to start reading:** `src/lib/data.ts` (data seam), `src/lib/enums.ts`
-(domain model), `src/app/parking/page.tsx` (dashboard), and
-`src/components/parking/new-entry-flow.tsx` (the core entry flow).
+**Good places to start reading:** `src/lib/server/parking-data.ts` (DB read model),
+`src/lib/server/visitors.ts` (visitor mutations), `src/lib/enums.ts` (domain model),
+`src/app/parking/page.tsx` (dashboard), and `src/components/parking/new-entry-flow.tsx`
+(the walk-in entry flow).
 
 ---
 
@@ -212,17 +262,17 @@ The module follows a compliance-first architecture (Malaysian PDPA 2010 as amend
 
 ## What's wired vs. stubbed
 
-**Working now (client-side):** all routes and navigation; glassmorphic UI + motion;
-on-device plate OCR; QR generation + scanning; the `wa.me` WhatsApp pass link; the
-public pass page; PWA install + offline banner.
+**Working now:** OTP login, protected parking shell, TypeORM migrations, starter and
+demo seeders, live DB dashboard/log/admin reads, walk-in entry with immediate
+check-in, pre-registration with arrival QR check-in, QR/manual check-out, repeat
+visitor quick re-register, known vehicle/blacklist reads, QR generation/scanning,
+the `wa.me` WhatsApp pass link, the public pass page, PWA install, and offline banner.
 
-**Stubbed (clean seams, ready to wire):**
+**Still stubbed or intentionally local-only:**
 
 | Concern | Where | TODO |
 |---|---|---|
-| Data access | `src/lib/data.ts` → `src/lib/mock.ts` | Swap mock for Supabase queries against the `parking` schema |
 | Audit insert + ICS mirror | `src/lib/audit.ts` | `insertAuditRow` (same tx) + `mirrorToICS` (HMAC + retry/DLQ) |
-| Pass token | `src/lib/qr.ts` | Sign server-side; inject key from Key Vault |
 | Photo storage | entry flow | Upload plate snapshot to Azure Blob (MY West) |
 | WhatsApp | `src/lib/whatsapp.ts` | Optional: WhatsApp Business API for automated + media send |
 | Offline queue | `OfflineBanner` | IndexedDB write queue + background sync |

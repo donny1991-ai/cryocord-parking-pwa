@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import { authErrorResponse, requireParkingUser } from "@/lib/server/auth";
 import { scanVisitorPass } from "@/lib/server/visitors";
 import { assertScanAction } from "@/lib/server/visitor-state";
@@ -17,6 +18,7 @@ export async function POST(request: NextRequest) {
     }
 
     const visitor = await scanVisitorPass({ token, action, guardId: actor.id });
+    revalidateParkingPages(visitor.id);
     return NextResponse.json({ visitor });
   } catch (error) {
     const authError = authErrorResponse(error);
@@ -37,5 +39,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
     return NextResponse.json({ error: "Unable to process visitor scan." }, { status: 500 });
+  }
+}
+
+function revalidateParkingPages(visitorId: string) {
+  try {
+    revalidatePath("/parking");
+    revalidatePath("/parking/visits");
+    revalidatePath("/parking/exit");
+    revalidatePath(`/parking/visit/${visitorId}`);
+  } catch {
+    // Direct test invocation does not always provide Next's static generation store.
   }
 }

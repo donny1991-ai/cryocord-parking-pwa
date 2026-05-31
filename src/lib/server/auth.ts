@@ -1,10 +1,12 @@
 import "server-only";
-import { jwtVerify } from "jose";
+import { jwtVerify, SignJWT } from "jose";
 import { ParkingUserSchema, type ParkingUserEntity, type ParkingUserRole } from "@/db/entities";
 import { getParkingDataSource } from "@/db/client";
 
 const LOCAL_SUPABASE_JWT_SECRET = "super-secret-jwt-token-with-at-least-32-characters-long";
 export const SUPABASE_AUTHENTICATED_AUDIENCE = "authenticated";
+export const PARKING_SESSION_COOKIE = "parking_session";
+export const PARKING_SESSION_EXPIRES_IN = "12h";
 
 export class AuthError extends Error {
   status: number;
@@ -41,13 +43,39 @@ function getSupabaseJwtSecret() {
   return secret ?? LOCAL_SUPABASE_JWT_SECRET;
 }
 
-function getBearerToken(request: Request) {
+export async function signParkingAccessToken(userId: string, expiresIn: string = PARKING_SESSION_EXPIRES_IN) {
+  return new SignJWT({ role: SUPABASE_AUTHENTICATED_AUDIENCE })
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(userId)
+    .setAudience(SUPABASE_AUTHENTICATED_AUDIENCE)
+    .setIssuedAt()
+    .setExpirationTime(expiresIn)
+    .sign(new TextEncoder().encode(getSupabaseJwtSecret()));
+}
+
+function getCookieToken(request: Request) {
+  const cookie = request.headers.get("cookie") ?? "";
+  const match = cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${PARKING_SESSION_COOKIE}=`));
+
+  return match ? decodeURIComponent(match.slice(PARKING_SESSION_COOKIE.length + 1)) : null;
+}
+
+function getRequestToken(request: Request) {
   const authorization = request.headers.get("authorization");
   const [scheme, token] = authorization?.split(/\s+/) ?? [];
-  if (scheme?.toLowerCase() !== "bearer" || !token) {
-    throw new AuthError("Authentication is required.", 401);
+  if (scheme?.toLowerCase() === "bearer" && token) {
+    return token;
   }
-  return token;
+
+  const cookieToken = getCookieToken(request);
+  if (cookieToken) {
+    return cookieToken;
+  }
+
+  throw new AuthError("Authentication is required.", 401);
 }
 
 function assertUuid(value: string | undefined) {
@@ -92,11 +120,11 @@ export async function verifySupabaseAccessToken(token: string) {
   }
 }
 
-export async function requireParkingUser(
-  request: Request,
+export async function getParkingUserForToken(
+  token: string,
   allowedRoles: ParkingUserRole[] = ["guard", "supervisor", "admin"],
 ) {
-  const userId = await verifySupabaseAccessToken(getBearerToken(request));
+  const userId = await verifySupabaseAccessToken(token);
   const ds = await getParkingDataSource();
   const user = await ds.manager.findOneBy(ParkingUserSchema, { id: userId, active: true });
 
@@ -109,6 +137,13 @@ export async function requireParkingUser(
   }
 
   return toAuthenticatedParkingUser(user);
+}
+
+export async function requireParkingUser(
+  request: Request,
+  allowedRoles: ParkingUserRole[] = ["guard", "supervisor", "admin"],
+) {
+  return getParkingUserForToken(getRequestToken(request), allowedRoles);
 }
 
 export function authErrorResponse(error: unknown) {

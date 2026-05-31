@@ -21,6 +21,10 @@ export const statusLabel = (s: Status) => labelize(s);
 
 /** Status → glass pill styling (translucent brand-aware tints). */
 export const STATUS_STYLE: Record<Status, { dot: string; pill: string }> = {
+  pending: {
+    dot: "bg-sky-500",
+    pill: "bg-sky-500/12 text-sky-700 border-sky-500/25",
+  },
   inside: {
     dot: "bg-emerald-500",
     pill: "bg-emerald-500/12 text-emerald-700 border-emerald-500/25",

@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import { authErrorResponse, requireParkingUser } from "@/lib/server/auth";
 import { assertVisitorTypeCode, createVisitorPass } from "@/lib/server/visitors";
+import { PURPOSES } from "@/lib/enums";
 
 export const runtime = "nodejs";
 
@@ -9,6 +11,9 @@ const LIMITS = {
   phoneNumber: 40,
   vehicleNumber: 32,
   remarks: 2000,
+  hostStaffId: 80,
+  hostDepartment: 120,
+  flagReason: 2000,
 };
 
 function tooLong(value: string, max: number) {
@@ -23,7 +28,11 @@ export async function POST(request: NextRequest) {
     const phoneNumber = String(body.phoneNumber ?? "").trim();
     const vehicleNumber = String(body.vehicleNumber ?? "").trim();
     const typeCode = assertVisitorTypeCode(body.typeCode);
+    const purpose = (PURPOSES as readonly string[]).includes(body.purpose) ? body.purpose : "other";
     const remarks = String(body.remarks ?? "").trim();
+    const hostStaffId = String(body.hostStaffId ?? "").trim();
+    const hostDepartment = String(body.hostDepartment ?? "").trim();
+    const flagReason = String(body.flagReason ?? "").trim();
 
     if (!name || !phoneNumber || !vehicleNumber) {
       return NextResponse.json(
@@ -36,7 +45,10 @@ export async function POST(request: NextRequest) {
       tooLong(name, LIMITS.name) ||
       tooLong(phoneNumber, LIMITS.phoneNumber) ||
       tooLong(vehicleNumber, LIMITS.vehicleNumber) ||
-      tooLong(remarks, LIMITS.remarks)
+      tooLong(remarks, LIMITS.remarks) ||
+      tooLong(hostStaffId, LIMITS.hostStaffId) ||
+      tooLong(hostDepartment, LIMITS.hostDepartment) ||
+      tooLong(flagReason, LIMITS.flagReason)
     ) {
       return NextResponse.json({ error: "Visitor payload exceeds allowed field length." }, { status: 400 });
     }
@@ -46,10 +58,16 @@ export async function POST(request: NextRequest) {
       phoneNumber,
       vehicleNumber,
       typeCode,
+      purpose,
       remarks,
+      hostStaffId,
+      hostDepartment,
+      flagReason,
       guardId: actor.id,
+      checkInOnCreate: body.checkInOnCreate === true,
     });
 
+    revalidateParkingPages(result.visitor.id);
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
     const authError = authErrorResponse(error);
@@ -66,5 +84,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Visitor database is not configured." }, { status: 503 });
     }
     return NextResponse.json({ error: "Unable to create visitor pass." }, { status: 500 });
+  }
+}
+
+function revalidateParkingPages(visitorId: string) {
+  try {
+    revalidatePath("/parking");
+    revalidatePath("/parking/visits");
+    revalidatePath(`/parking/visit/${visitorId}`);
+  } catch {
+    // Direct test invocation does not always provide Next's static generation store.
   }
 }

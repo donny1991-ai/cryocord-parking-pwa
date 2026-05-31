@@ -1,10 +1,12 @@
 import "reflect-metadata";
 import dotenv from "dotenv";
 import { DataSource } from "typeorm";
+import { AuthOtpSchema } from "./entities/auth-otp.entity";
 import { ParkingUserSchema } from "./entities/parking-user.entity";
 import { VisitorScanEventSchema } from "./entities/visitor-scan-event.entity";
 import { VisitorSchema } from "./entities/visitor.entity";
 import { VisitorTypeSchema } from "./entities/visitor-type.entity";
+import { VehicleSchema } from "./entities/vehicle.entity";
 import { assertSafeTestDatabaseUrl, getConfiguredTestDatabaseUrl } from "./test-guard";
 
 if (process.env.NODE_ENV === "test") {
@@ -27,11 +29,24 @@ if (process.env.NODE_ENV === "test") {
   assertSafeTestDatabaseUrl(databaseUrl);
 }
 
+function shouldLoadMigrations() {
+  if (process.env.PARKING_LOAD_MIGRATIONS === "true") {
+    return true;
+  }
+
+  if (process.env.NODE_ENV === "test") {
+    return true;
+  }
+
+  const argv = process.argv.join(" ");
+  return argv.includes("migration:") || argv.includes("migrate-fresh.ts") || argv.includes("typeorm");
+}
+
 export const AppDataSource = new DataSource({
   type: "postgres",
   url: databaseUrl,
-  entities: [ParkingUserSchema, VisitorTypeSchema, VisitorSchema, VisitorScanEventSchema],
-  migrations: ["src/db/migrations/*.{ts,js}"],
+  entities: [AuthOtpSchema, ParkingUserSchema, VisitorTypeSchema, VisitorSchema, VisitorScanEventSchema, VehicleSchema],
+  migrations: shouldLoadMigrations() ? ["src/db/migrations/*.{ts,js}"] : [],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,
   logging: process.env.TYPEORM_LOGGING === "true",

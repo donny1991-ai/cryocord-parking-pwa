@@ -1,3 +1,5 @@
+export { AuthOtpSchema } from "./auth-otp.entity";
+export type { AuthOtpEntity } from "./auth-otp.entity";
 export { ParkingUserSchema } from "./parking-user.entity";
 export type { ParkingUserEntity, ParkingUserRole } from "./parking-user.entity";
 export { VisitorTypeSchema } from "./visitor-type.entity";
@@ -6,3 +8,5 @@ export { VisitorSchema } from "./visitor.entity";
 export type { VisitorEntity, VisitorStatus } from "./visitor.entity";
 export { VisitorScanEventSchema } from "./visitor-scan-event.entity";
 export type { VisitorScanEventEntity, VisitorScanEventType } from "./visitor-scan-event.entity";
+export { VehicleSchema } from "./vehicle.entity";
+export type { VehicleEntity } from "./vehicle.entity";

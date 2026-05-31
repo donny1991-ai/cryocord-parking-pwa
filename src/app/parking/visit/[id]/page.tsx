@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import {
+  CalendarPlus,
   Camera,
   Clock,
   DoorOpen,
@@ -15,20 +16,27 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { StatusPill, Chip } from "@/components/ui/badge";
 import { QrPass } from "@/components/parking/qr-pass";
-import { data } from "@/lib/data";
+import { getDemoEmployees, getVisitAuditTrail, getVisitById } from "@/lib/server/parking-data";
 import { formatDateTime } from "@/lib/utils";
 import { purposeLabel, visitTypeLabel } from "@/lib/labels";
 
 export default async function VisitDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const visit = data.getVisit(id);
+  const visit = await getVisitById(id);
   if (!visit) notFound();
 
   const host = visit.hostStaffId
-    ? data.employees().find((e) => e.staffId === visit.hostStaffId)
+    ? getDemoEmployees().find((e) => e.staffId === visit.hostStaffId)
     : undefined;
-  const trail = data.auditTrail(visit.id);
-  const live = visit.status === "inside" || visit.status === "overstayed";
+  const trail = await getVisitAuditTrail(visit.id);
+  const live = visit.status === "inside" || visit.status === "overstayed" || visit.status === "flagged";
+  const canQuickRegister = visit.status === "exited";
+  const passHeading =
+    visit.status === "pending"
+      ? "Scan at gate to check in"
+      : live
+        ? "Keep for exit scan"
+        : "Archived visitor pass";
 
   return (
     <div className="space-y-5">
@@ -38,6 +46,18 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
         backHref="/parking/visits"
         action={<StatusPill status={visit.status} />}
       />
+
+      {/* Pass */}
+      {visit.qrToken && (
+        <QrPass
+          token={visit.qrToken}
+          plate={visit.plate}
+          visitorName={visit.visitorName}
+          visitType={visit.visitType}
+          validUntil="24 Aug 2026"
+          heading={passHeading}
+        />
+      )}
 
       <GlassCard padding="lg" className="space-y-3">
         <DetailRow icon={UserRound} label="Visitor" value={visit.visitorName} />
@@ -52,6 +72,16 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
         )}
       </GlassCard>
 
+      {canQuickRegister && (
+        <div className="pt-2">
+          <Link href={`/parking/pre-register?fromVisit=${encodeURIComponent(visit.id)}`}>
+            <Button variant="outline" size="xl" className="w-full">
+              <CalendarPlus className="h-5 w-5" /> Quick re-register
+            </Button>
+          </Link>
+        </div>
+      )}
+
       {/* Entry photo (Azure Blob, MY West) */}
       <GlassCard padding="md">
         <p className="mb-2 text-sm font-bold uppercase tracking-wide text-ink-faint">Entry snapshot</p>
@@ -62,17 +92,6 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
           </div>
         </div>
       </GlassCard>
-
-      {/* Pass */}
-      {visit.qrToken && (
-        <QrPass
-          token={visit.qrToken}
-          plate={visit.plate}
-          visitorName={visit.visitorName}
-          visitType={visit.visitType}
-          validUntil="24 Aug 2026"
-        />
-      )}
 
       {/* Audit trail */}
       <GlassCard padding="lg">
@@ -106,7 +125,7 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
       </GlassCard>
 
       {live && (
-        <Link href="/parking/exit">
+        <Link href={`/parking/exit?visitId=${encodeURIComponent(visit.id)}`}>
           <Button size="xl" className="w-full">
             <DoorOpen className="h-5 w-5" /> Log exit for this vehicle
           </Button>

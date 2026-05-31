@@ -14,6 +14,10 @@ export interface VisitorEntity {
   typeId: number;
   type?: VisitorTypeEntity;
   remarks: string | null;
+  purpose: string;
+  hostStaffId: string | null;
+  hostDepartment: string | null;
+  flagReason: string | null;
   qrTokenJti: string | null;
   status: VisitorStatus;
   createdBy: string | null;
@@ -67,6 +71,28 @@ export const VisitorSchema = new EntitySchema<VisitorEntity>({
       type: Number,
     },
     remarks: {
+      type: "text",
+      nullable: true,
+    },
+    purpose: {
+      type: String,
+      length: 32,
+      default: "'other'",
+    },
+    hostStaffId: {
+      name: "host_staff_id",
+      type: String,
+      length: 80,
+      nullable: true,
+    },
+    hostDepartment: {
+      name: "host_department",
+      type: String,
+      length: 120,
+      nullable: true,
+    },
+    flagReason: {
+      name: "flag_reason",
       type: "text",
       nullable: true,
     },

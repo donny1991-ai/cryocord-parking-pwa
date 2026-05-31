@@ -2,6 +2,7 @@ import "server-only";
 import { VisitorScanEventSchema, VisitorSchema, VisitorTypeSchema } from "@/db/entities";
 import type { VisitorEntity, VisitorStatus } from "@/db/entities";
 import { getParkingDataSource } from "@/db/client";
+import { PURPOSES, type Purpose } from "@/lib/enums";
 import { assertQrSigningConfigured, signVisitToken, verifyVisitToken } from "@/lib/qr";
 import { normalisePlate } from "@/lib/utils";
 import { assertScanAction, resolveVisitorScanTransition, type ScanAction } from "./visitor-state";
@@ -14,13 +15,23 @@ export interface CreateVisitorInput {
   phoneNumber: string;
   vehicleNumber: string;
   typeCode: VisitorTypeCode;
+  purpose?: Purpose;
   remarks?: string;
+  hostStaffId?: string;
+  hostDepartment?: string;
+  flagReason?: string;
   guardId?: string;
+  checkInOnCreate?: boolean;
 }
 
 export interface ScanVisitorInput {
   token: string;
   action?: ScanAction;
+  guardId?: string;
+}
+
+export interface CheckOutVisitorInput {
+  visitorId: string;
   guardId?: string;
 }
 
@@ -34,6 +45,10 @@ export interface VisitorDto {
   typeCode: string;
   typeLabel: string;
   remarks: string | null;
+  purpose: string;
+  hostStaffId: string | null;
+  hostDepartment: string | null;
+  flagReason: string | null;
   status: VisitorStatus;
   createdAt: string;
   updatedAt: string;
@@ -55,10 +70,21 @@ function toDto(visitor: VisitorEntity): VisitorDto {
     typeCode: visitor.type?.code ?? String(visitor.typeId),
     typeLabel: visitor.type?.label ?? "Unknown",
     remarks: visitor.remarks,
+    purpose: visitor.purpose,
+    hostStaffId: visitor.hostStaffId,
+    hostDepartment: visitor.hostDepartment,
+    flagReason: visitor.flagReason,
     status: visitor.status,
     createdAt: visitor.createdAt.toISOString(),
     updatedAt: visitor.updatedAt.toISOString(),
   };
+}
+
+function assertPurpose(value: unknown): Purpose {
+  if (typeof value === "string" && (PURPOSES as readonly string[]).includes(value)) {
+    return value as Purpose;
+  }
+  return "other";
 }
 
 export function assertVisitorTypeCode(value: unknown): VisitorTypeCode {
@@ -76,17 +102,24 @@ export async function createVisitorPass(input: CreateVisitorInput): Promise<Issu
 
   const visitor = await ds.transaction(async (manager) => {
     const type = await manager.findOneByOrFail(VisitorTypeSchema, { code: input.typeCode });
+    const checkedInAt = input.checkInOnCreate ? new Date() : null;
     const created = manager.create(VisitorSchema, {
       name: input.name.trim(),
       phoneNumber: input.phoneNumber.trim(),
       vehicleNumber: input.vehicleNumber.trim().toUpperCase(),
       vehicleNumberNormalised: normalisePlate(input.vehicleNumber),
+      checkedIn: checkedInAt,
       typeId: type.id,
       type,
+      purpose: assertPurpose(input.purpose),
       remarks: input.remarks?.trim() || null,
+      hostStaffId: input.hostStaffId?.trim() || null,
+      hostDepartment: input.hostDepartment?.trim() || null,
+      flagReason: input.flagReason?.trim() || null,
       qrTokenJti: tokenId,
-      status: "pending",
+      status: checkedInAt ? "checked_in" : "pending",
       createdBy: input.guardId?.trim() || null,
+      checkedInBy: checkedInAt ? input.guardId?.trim() || null : null,
     });
 
     const saved = await manager.save(VisitorSchema, created);
@@ -96,6 +129,14 @@ export async function createVisitorPass(input: CreateVisitorInput): Promise<Issu
       guardId: input.guardId?.trim() || null,
       metadata: { vehicleNumber: saved.vehicleNumber },
     });
+
+    if (checkedInAt) {
+      await manager.insert(VisitorScanEventSchema, {
+        visitorId: saved.id,
+        eventType: "check_in",
+        guardId: input.guardId?.trim() || null,
+      });
+    }
 
     return manager.findOneOrFail(VisitorSchema, {
       where: { id: saved.id },
@@ -182,4 +223,40 @@ export async function scanVisitorPass(input: ScanVisitorInput): Promise<VisitorD
   }
 
   return result.visitor;
+}
+
+export async function checkOutVisitorById(input: CheckOutVisitorInput): Promise<VisitorDto> {
+  const ds = await getParkingDataSource();
+
+  return ds.transaction(async (manager) => {
+    const visitor = await manager.findOne(VisitorSchema, {
+      where: { id: input.visitorId },
+      lock: { mode: "pessimistic_write" },
+    });
+
+    if (!visitor) {
+      throw new Error("Visitor pass not found.");
+    }
+
+    const now = new Date();
+    const transition = resolveVisitorScanTransition(visitor, "check_out", now);
+    visitor.checkedIn = transition.checkedIn;
+    visitor.checkedOut = transition.checkedOut;
+    visitor.checkedOutBy = input.guardId?.trim() || null;
+    visitor.status = transition.status;
+
+    await manager.save(VisitorSchema, visitor);
+    await manager.insert(VisitorScanEventSchema, {
+      visitorId: visitor.id,
+      eventType: "check_out",
+      guardId: input.guardId?.trim() || null,
+    });
+
+    const refreshed = await manager.findOneOrFail(VisitorSchema, {
+      where: { id: visitor.id },
+      relations: { type: true },
+    });
+
+    return toDto(refreshed);
+  });
 }

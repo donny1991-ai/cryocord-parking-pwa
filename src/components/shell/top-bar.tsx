@@ -1,13 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Wifi, WifiOff } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { LogOut, Wifi, WifiOff } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
 import { LiveClock } from "./live-clock";
+import { labelize } from "@/lib/labels";
 
 /** Glass top bar: brand, live clock, connection status, on-duty guard. */
-export function TopBar({ guardName }: { guardName: string }) {
+export function TopBar({ guardName, guardRole }: { guardName: string; guardRole: string }) {
   const [online, setOnline] = useState(true);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     const sync = () => setOnline(navigator.onLine);
@@ -19,6 +23,16 @@ export function TopBar({ guardName }: { guardName: string }) {
       window.removeEventListener("offline", sync);
     };
   }, []);
+
+  async function logout() {
+    setLoggingOut(true);
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      router.replace("/login");
+      router.refresh();
+    }
+  }
 
   return (
     <header className="glass-bar sticky top-0 z-30 border-b">
@@ -39,11 +53,21 @@ export function TopBar({ guardName }: { guardName: string }) {
           <div className="flex items-center gap-2">
             <span className="hidden text-right text-xs leading-tight sm:block">
               <span className="block font-semibold text-ink">{guardName}</span>
-              <span className="block text-ink-faint">Parking Guard · on duty</span>
+              <span className="block text-ink-faint">{labelize(guardRole)} · on duty</span>
             </span>
             <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand text-sm font-bold text-white">
               {guardName.slice(0, 1)}
             </span>
+            <button
+              type="button"
+              onClick={logout}
+              disabled={loggingOut}
+              title="Logout"
+              className="glass-interactive flex h-9 items-center justify-center gap-1.5 rounded-full px-2.5 text-xs font-bold text-ink-soft hover:text-brand disabled:opacity-60"
+            >
+              <LogOut className="h-4 w-4" />
+              <span className="hidden sm:inline">{loggingOut ? "Signing out" : "Logout"}</span>
+            </button>
           </div>
         </div>
       </div>

@@ -9,10 +9,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { data } from "@/lib/data";
+import type { OccupancyPoint } from "@/lib/server/parking-data";
 
-export function OccupancyChart() {
-  const series = data.occupancySeries();
+export function OccupancyChart({ series }: { series: OccupancyPoint[] }) {
   return (
     <div className="h-56 w-full">
       <ResponsiveContainer width="100%" height="100%">

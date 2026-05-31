@@ -1,4 +1,5 @@
 import type { DataSource } from "typeorm";
+import { freshParkingDatabase } from "@/db/parking-fresh";
 
 /**
  * Laravel-style RefreshDatabase for the isolated integration database.
@@ -10,8 +11,5 @@ export async function refreshParkingTestDatabase(dataSource: DataSource) {
     throw new Error("refreshParkingTestDatabase can only run under NODE_ENV=test.");
   }
 
-  await dataSource.query(`DROP SCHEMA IF EXISTS "parking" CASCADE`);
-  await dataSource.query(`DROP TABLE IF EXISTS "typeorm_migrations"`);
-  await dataSource.query(`DELETE FROM "auth"."users" WHERE "email" LIKE '%@parking.test'`);
-  await dataSource.runMigrations({ transaction: "all" });
+  await freshParkingDatabase(dataSource);
 }

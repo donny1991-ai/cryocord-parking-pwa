@@ -6,14 +6,13 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Field } from "@/components/ui/input";
 import { Chip } from "@/components/ui/badge";
-import { data } from "@/lib/data";
 import { OWNER_TYPES, type OwnerType } from "@/lib/enums";
 import { labelize, ownerTypeLabel } from "@/lib/labels";
 import { normalisePlate } from "@/lib/utils";
 import type { Vehicle } from "@/lib/types";
 
-export function VehiclesAdmin() {
-  const [list, setList] = useState<Vehicle[]>(() => data.vehicles());
+export function VehiclesAdmin({ vehicles }: { vehicles: Vehicle[] }) {
+  const [list, setList] = useState<Vehicle[]>(() => vehicles);
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
 

@@ -6,16 +6,16 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { VisitRow } from "@/components/parking/visit-row";
 import { OccupancyChart } from "@/components/parking/occupancy-chart";
-import { data } from "@/lib/data";
-import { MOCK_NOW } from "@/lib/mock";
+import { getParkingSnapshot } from "@/lib/server/parking-data";
 
 export const metadata: Metadata = { title: "Admin" };
 
-export default function AdminPage() {
-  const series = data.occupancySeries();
+export default async function AdminPage() {
+  const snapshot = await getParkingSnapshot();
+  const series = snapshot.occupancySeries;
   const peak = Math.max(...series.map((s) => s.inside));
-  const alerts = data.allVisits().filter((v) => v.status === "overstayed" || v.status === "flagged");
-  const c = data.counts();
+  const alerts = snapshot.allVisits.filter((v) => v.status === "overstayed" || v.status === "flagged");
+  const c = snapshot.counts;
 
   return (
     <div className="space-y-5">
@@ -32,7 +32,7 @@ export default function AdminPage() {
           <Activity className="h-4 w-4 text-brand" />
           <h2 className="text-sm font-bold uppercase tracking-wide text-ink-soft">Occupancy — today</h2>
         </div>
-        <OccupancyChart />
+        <OccupancyChart series={series} />
       </GlassCard>
 
       <section className="space-y-2.5">
@@ -40,7 +40,7 @@ export default function AdminPage() {
           Alerts ({alerts.length})
         </h2>
         {alerts.map((v) => (
-          <VisitRow key={v.id} visit={v} now={MOCK_NOW} />
+          <VisitRow key={v.id} visit={v} now={snapshot.now} />
         ))}
         {alerts.length === 0 && (
           <p className="py-6 text-center text-sm text-ink-faint">No overstays or flags right now.</p>

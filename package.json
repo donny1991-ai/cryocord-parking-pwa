@@ -16,7 +16,12 @@
     "typecheck": "tsc --noEmit",
     "db:migration:run": "TS_NODE_PROJECT=tsconfig.typeorm.json typeorm-ts-node-commonjs -d src/db/data-source.ts migration:run",
     "db:migration:revert": "TS_NODE_PROJECT=tsconfig.typeorm.json typeorm-ts-node-commonjs -d src/db/data-source.ts migration:revert",
-    "db:migration:show": "TS_NODE_PROJECT=tsconfig.typeorm.json typeorm-ts-node-commonjs -d src/db/data-source.ts migration:show"
+    "db:migration:show": "TS_NODE_PROJECT=tsconfig.typeorm.json typeorm-ts-node-commonjs -d src/db/data-source.ts migration:show",
+    "db:migrate:fresh": "node scripts/run-ts-node.cjs src/db/migrate-fresh.ts",
+    "db:migrate:fresh:seed": "node scripts/run-ts-node.cjs src/db/migrate-fresh.ts --seed",
+    "db:migrate:fresh:demo": "node scripts/run-ts-node.cjs src/db/migrate-fresh.ts --seed --demo",
+    "db:seed": "node scripts/run-ts-node.cjs src/db/seed.ts",
+    "db:seed:demo": "node scripts/run-ts-node.cjs src/db/seed.ts --demo"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

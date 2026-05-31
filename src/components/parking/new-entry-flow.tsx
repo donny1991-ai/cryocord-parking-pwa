@@ -11,19 +11,20 @@ import { PlateCapture } from "./plate-capture";
 import { QrPass } from "./qr-pass";
 import { VISIT_TYPES, PURPOSES, type VisitType, type Purpose } from "@/lib/enums";
 import { labelize } from "@/lib/labels";
-import { data } from "@/lib/data";
-import { cn } from "@/lib/utils";
+import { cn, normalisePlate } from "@/lib/utils";
 import { buildPassMessage, waLink } from "@/lib/whatsapp";
-import { MOCK_GUARD_ID } from "@/lib/mock";
+import type { Employee, Vehicle } from "@/lib/types";
 
 type Step = "capture" | "form" | "pass";
 
-export function NewEntryFlow() {
+export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; vehicles: Vehicle[] }) {
   const [step, setStep] = useState<Step>("capture");
   const [plate, setPlate] = useState("");
-  const employees = data.employees();
 
-  const known = useMemo(() => (plate ? data.getVehicleByPlate(plate) : undefined), [plate]);
+  const known = useMemo(() => {
+    const normalised = normalisePlate(plate);
+    return normalised ? vehicles.find((vehicle) => vehicle.plateNormalised === normalised) : undefined;
+  }, [plate, vehicles]);
 
   const [visitorName, setVisitorName] = useState("");
   const [visitorContact, setVisitorContact] = useState("");
@@ -40,7 +41,8 @@ export function NewEntryFlow() {
 
   function selectPlate(p: string) {
     setPlate(p);
-    const veh = data.getVehicleByPlate(p);
+    const normalised = normalisePlate(p);
+    const veh = vehicles.find((vehicle) => vehicle.plateNormalised === normalised);
     if (veh) {
       if (veh.ownerName && veh.ownerName !== "Unknown") setVisitorName(veh.ownerName);
       if (veh.ownerContact) setVisitorContact(veh.ownerContact);
@@ -68,8 +70,11 @@ export function NewEntryFlow() {
           phoneNumber: visitorContact,
           vehicleNumber: plate,
           typeCode: visitType,
+          purpose,
           remarks: purposeNotes || undefined,
-          guardId: MOCK_GUARD_ID,
+          hostStaffId: hostStaffId || undefined,
+          hostDepartment: employees.find((employee) => employee.staffId === hostStaffId)?.department,
+          checkInOnCreate: true,
         }),
       });
 
@@ -83,13 +88,8 @@ export function NewEntryFlow() {
       setStep("pass");
     } catch (error) {
       setIssueError(
-        error instanceof Error
-          ? `${error.message} Using a local demo pass for now.`
-          : "Using a local demo pass for now.",
+        error instanceof Error ? error.message : "Visitor pass could not be saved.",
       );
-      const id = `v-${crypto.randomUUID()}`;
-      setIssued({ id, token: `cc-pass:${id}` });
-      setStep("pass");
     } finally {
       setIssuing(false);
     }
@@ -104,9 +104,8 @@ export function NewEntryFlow() {
     );
   }
 
-  if (step === "pass") {
-    const activeIssued = issued ?? { id: "demo", token: "cc-pass:demo" };
-    const passUrl = origin ? `${origin}/pass/${encodeURIComponent(activeIssued.token)}` : undefined;
+  if (step === "pass" && issued) {
+    const passUrl = origin ? `${origin}/pass/${encodeURIComponent(issued.token)}` : undefined;
     const waHref = waLink(
       visitorContact,
       buildPassMessage({ visitorName, plate, visitType, validUntil: "24 Aug 2026", passUrl }),
@@ -115,21 +114,16 @@ export function NewEntryFlow() {
       <div className="space-y-5">
         <div className="flex flex-col items-center gap-1 text-center animate-fade-up">
           <CheckCircle2 className="h-10 w-10 text-emerald-500" />
-          <h2 className="text-xl font-bold text-ink">Pass issued</h2>
-          <p className="text-sm text-ink-faint">Scan this pass at the gate to check in.</p>
+          <h2 className="text-xl font-bold text-ink">Entry logged</h2>
+          <p className="text-sm text-ink-faint">Vehicle is checked in. Use this QR pass for check-out.</p>
         </div>
         <QrPass
-          token={activeIssued.token}
+          token={issued.token}
           plate={plate}
           visitorName={visitorName}
           visitType={visitType}
           validUntil="24 Aug 2026"
         />
-        {issueError && (
-          <p className="mx-auto max-w-sm rounded-2xl bg-amber-500/12 px-3.5 py-2 text-center text-xs font-semibold text-amber-700">
-            {issueError}
-          </p>
-        )}
         <div className="mx-auto flex max-w-sm flex-col gap-2.5">
           {waHref ? (
             <a
@@ -251,9 +245,15 @@ export function NewEntryFlow() {
         </p>
       </div>
 
+      {issueError && (
+        <p className="rounded-2xl bg-brand/10 px-3 py-2 text-center text-xs font-semibold text-brand">
+          {issueError}
+        </p>
+      )}
+
       <Button size="xl" className="w-full" disabled={!canIssue || issuing} onClick={issuePass}>
         <Sparkles className="h-5 w-5" />
-        {issuing ? "Issuing..." : "Issue Pass"}
+        {issuing ? "Logging..." : "Log Entry & Issue Pass"}
       </Button>
     </div>
   );

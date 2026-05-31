@@ -28,3 +28,48 @@ services:
       - "host.docker.internal:host-gateway"
     profiles:
       - tools
+
+  migrate-fresh:
+    build:
+      context: .
+      target: migrator
+    command: npm run db:migrate:fresh
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:54322/postgres}
+      DATABASE_SSL: "false"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    profiles:
+      - tools
+
+  migrate-fresh-seed:
+    build:
+      context: .
+      target: migrator
+    command: npm run db:migrate:fresh:seed
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:54322/postgres}
+      DATABASE_SSL: "false"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    profiles:
+      - tools
+
+  migrate-fresh-demo:
+    build:
+      context: .
+      target: migrator
+    command: npm run db:migrate:fresh:demo
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:54322/postgres}
+      DATABASE_SSL: "false"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    profiles:
+      - tools
