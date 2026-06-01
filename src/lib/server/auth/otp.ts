@@ -4,6 +4,7 @@ import { IsNull, type EntityManager } from "typeorm";
 import { AuthOtpSchema, ParkingUserSchema, type AuthOtpEntity, type ParkingUserEntity } from "@/db/entities";
 import { getParkingDataSource } from "@/db/client";
 import { AuthError, signParkingAccessToken } from "@/lib/server/auth";
+import { getParkingSettings } from "@/lib/server/admin-settings";
 import { renderOtpLoginEmail, sendEmail } from "@/lib/server/email";
 
 export const OTP_LENGTH = 6;
@@ -41,8 +42,6 @@ export interface VerifyLoginOtpResult {
 }
 
 const GENERIC_OTP_REQUEST_MESSAGE = "If this email has parking access, a login code has been sent.";
-const ACCESS_TOKEN_EXPIRES_IN_SECONDS = 12 * 60 * 60;
-
 function getOtpSecret() {
   const secret =
     process.env.AUTH_OTP_SECRET ??
@@ -226,10 +225,12 @@ export async function verifyLoginOtp(
     issuedOtp.consumedAt = now;
     await manager.save(AuthOtpSchema, issuedOtp);
 
+    const settings = await getParkingSettings(manager);
+
     return {
-      accessToken: await signParkingAccessToken(user.id),
+      accessToken: await signParkingAccessToken(user.id, `${settings.authSessionExpiresHours}h`),
       tokenType: "Bearer",
-      expiresIn: ACCESS_TOKEN_EXPIRES_IN_SECONDS,
+      expiresIn: settings.authSessionExpiresSeconds,
       user: toAuthUser(user),
     };
   });

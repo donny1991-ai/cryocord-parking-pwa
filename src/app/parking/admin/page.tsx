@@ -1,16 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Activity, CarFront, Clock, Download, Flag, ChevronRight, ShieldCheck } from "lucide-react";
+import { Activity, CarFront, Clock, Download, Flag, ChevronRight, ShieldCheck, UsersRound, Settings } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { GlassCard } from "@/components/ui/glass-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { VisitRow } from "@/components/parking/visit-row";
 import { OccupancyChart } from "@/components/parking/occupancy-chart";
 import { getParkingSnapshot } from "@/lib/server/parking-data";
+import { requireParkingPageUser } from "@/lib/server/page-auth";
 
 export const metadata: Metadata = { title: "Admin" };
 
 export default async function AdminPage() {
+  await requireParkingPageUser(["admin"]);
   const snapshot = await getParkingSnapshot();
   const series = snapshot.occupancySeries;
   const peak = Math.max(...series.map((s) => s.inside));
@@ -55,6 +57,30 @@ export default async function AdminPage() {
               <CarFront className="h-5 w-5 text-brand" />
             </span>
             <span className="flex-1 font-semibold text-ink">Vehicle registry & blacklist</span>
+            <ChevronRight className="h-4 w-4 text-ink-faint" />
+          </GlassCard>
+        </Link>
+        <Link href="/parking/users">
+          <GlassCard interactive padding="md" className="flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10">
+              <UsersRound className="h-5 w-5 text-brand" />
+            </span>
+            <div className="flex-1">
+              <p className="font-semibold text-ink">User management</p>
+              <p className="text-xs text-ink-faint">Create guards, assign roles, and disable access.</p>
+            </div>
+            <ChevronRight className="h-4 w-4 text-ink-faint" />
+          </GlassCard>
+        </Link>
+        <Link href="/parking/settings">
+          <GlassCard interactive padding="md" className="flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10">
+              <Settings className="h-5 w-5 text-brand" />
+            </span>
+            <div className="flex-1">
+              <p className="font-semibold text-ink">Configuration</p>
+              <p className="text-xs text-ink-faint">Token expiry and overstay thresholds.</p>
+            </div>
             <ChevronRight className="h-4 w-4 text-ink-faint" />
           </GlassCard>
         </Link>

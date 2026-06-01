@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppDataSource } from "@/db/data-source";
-import { AuthOtpSchema } from "@/db/entities";
+import { AuthOtpSchema, ParkingSettingSchema } from "@/db/entities";
 import { POST as requestOtpEndpoint } from "@/app/api/auth/otp/request/route";
 import { POST as verifyOtpEndpoint } from "@/app/api/auth/otp/verify/route";
 import { refreshParkingTestDatabase } from "@/test/refresh-database";
@@ -95,6 +95,35 @@ describe("OTP authentication flow", () => {
 
     const storedOtp = await AppDataSource.manager.findOneByOrFail(AuthOtpSchema, { email: "admin@parking.test" });
     expect(storedOtp.consumedAt).toEqual(expect.any(Date));
+  });
+
+  it("uses the configured parking session expiry for newly verified OTP tokens", async () => {
+    await seedAuthParkingUser(AppDataSource.manager, {
+      email: "admin@parking.test",
+      name: "Parking Super Admin",
+      role: "admin",
+      isSuperAdmin: true,
+    });
+    await AppDataSource.manager.upsert(
+      ParkingSettingSchema,
+      {
+        key: "auth_session_expires_hours",
+        value: { hours: 2 },
+        updatedBy: null,
+      },
+      ["key"],
+    );
+
+    await requestOtpEndpoint(jsonRequest("/api/auth/otp/request", { email: "admin@parking.test" }));
+    const otp = getOtpFromMessage(sentMessages[0]);
+    const verifyResponse = await verifyOtpEndpoint(
+      jsonRequest("/api/auth/otp/verify", { email: "admin@parking.test", otp }),
+    );
+
+    expect(verifyResponse.status).toBe(200);
+    await expect(verifyResponse.json()).resolves.toMatchObject({
+      expiresIn: 7_200,
+    });
   });
 
   it("returns the generic request response without sending mail for unknown users", async () => {

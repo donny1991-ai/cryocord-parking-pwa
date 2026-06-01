@@ -18,6 +18,8 @@ export interface VisitorEntity {
   hostStaffId: string | null;
   hostDepartment: string | null;
   flagReason: string | null;
+  flaggedBy: string | null;
+  flaggedAt: Date | null;
   qrTokenJti: string | null;
   status: VisitorStatus;
   createdBy: string | null;
@@ -94,6 +96,16 @@ export const VisitorSchema = new EntitySchema<VisitorEntity>({
     flagReason: {
       name: "flag_reason",
       type: "text",
+      nullable: true,
+    },
+    flaggedBy: {
+      name: "flagged_by",
+      type: "uuid",
+      nullable: true,
+    },
+    flaggedAt: {
+      name: "flagged_at",
+      type: "timestamptz",
       nullable: true,
     },
     qrTokenJti: {

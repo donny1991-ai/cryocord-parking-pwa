@@ -2,6 +2,7 @@ import "reflect-metadata";
 import dotenv from "dotenv";
 import { DataSource } from "typeorm";
 import { AuthOtpSchema } from "./entities/auth-otp.entity";
+import { ParkingSettingSchema } from "./entities/parking-setting.entity";
 import { ParkingUserSchema } from "./entities/parking-user.entity";
 import { VisitorScanEventSchema } from "./entities/visitor-scan-event.entity";
 import { VisitorSchema } from "./entities/visitor.entity";
@@ -45,7 +46,15 @@ function shouldLoadMigrations() {
 export const AppDataSource = new DataSource({
   type: "postgres",
   url: databaseUrl,
-  entities: [AuthOtpSchema, ParkingUserSchema, VisitorTypeSchema, VisitorSchema, VisitorScanEventSchema, VehicleSchema],
+  entities: [
+    AuthOtpSchema,
+    ParkingSettingSchema,
+    ParkingUserSchema,
+    VisitorTypeSchema,
+    VisitorSchema,
+    VisitorScanEventSchema,
+    VehicleSchema,
+  ],
   migrations: shouldLoadMigrations() ? ["src/db/migrations/*.{ts,js}"] : [],
   migrationsTableName: "typeorm_migrations",
   synchronize: false,

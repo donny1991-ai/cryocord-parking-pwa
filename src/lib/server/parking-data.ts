@@ -3,6 +3,7 @@ import { getParkingDataSource } from "@/db/client";
 import type { OwnerType, Purpose, Status, VisitType } from "@/lib/enums";
 import { OWNER_TYPES, PURPOSES, VISIT_TYPES } from "@/lib/enums";
 import { signVisitToken } from "@/lib/qr";
+import { getParkingSettings } from "@/lib/server/admin-settings";
 import type { AuditEntry, Employee, Vehicle, Visit } from "@/lib/types";
 
 export interface ParkingCounts {
@@ -27,7 +28,7 @@ export interface ParkingSnapshot {
   now: Date;
 }
 
-const OVERSTAY_MS = 4 * 60 * 60 * 1000;
+const MALAYSIA_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 export const demoEmployees: Employee[] = [
   { staffId: "EMP-0142", name: "Dr. Lim Wei Sheng", department: "Laboratory" },
@@ -94,7 +95,25 @@ function toOwnerType(value: string | null): OwnerType | undefined {
   return value && (OWNER_TYPES as readonly string[]).includes(value) ? (value as OwnerType) : undefined;
 }
 
-function toUiStatus(row: VisitorReadRow, now: Date): Status {
+export function getOverstayCutoff(checkedIn: Date, allowedDays: number) {
+  const malaysiaTime = new Date(checkedIn.getTime() + MALAYSIA_UTC_OFFSET_MS);
+  const cutoffMalaysiaUtc = Date.UTC(
+    malaysiaTime.getUTCFullYear(),
+    malaysiaTime.getUTCMonth(),
+    malaysiaTime.getUTCDate() + allowedDays + 1,
+    0,
+    0,
+    0,
+    0,
+  );
+  return new Date(cutoffMalaysiaUtc - MALAYSIA_UTC_OFFSET_MS);
+}
+
+export function isOverstayed(checkedIn: Date, now: Date, allowedDays: number) {
+  return now.getTime() >= getOverstayCutoff(checkedIn, allowedDays).getTime();
+}
+
+function toUiStatus(row: VisitorReadRow, now: Date, overstayAllowedDays: number): Status {
   if (row.status === "checked_out" || row.status === "cancelled" || row.checkedOut) {
     return "exited";
   }
@@ -104,13 +123,13 @@ function toUiStatus(row: VisitorReadRow, now: Date): Status {
   if (row.flagReason) {
     return "flagged";
   }
-  if (now.getTime() - row.checkedIn.getTime() > OVERSTAY_MS) {
+  if (isOverstayed(row.checkedIn, now, overstayAllowedDays)) {
     return "overstayed";
   }
   return "inside";
 }
 
-function toVisit(row: VisitorReadRow, now: Date): Visit {
+function toVisit(row: VisitorReadRow, now: Date, overstayAllowedDays: number): Visit {
   const entryTime = row.checkedIn ?? row.createdAt;
   const purposeNotes = [row.remarks, row.flagReason ? `Flag: ${row.flagReason}` : null].filter(Boolean).join("\n");
 
@@ -124,11 +143,12 @@ function toVisit(row: VisitorReadRow, now: Date): Visit {
     purposeNotes: purposeNotes || undefined,
     hostStaffId: row.hostStaffId ?? undefined,
     hostDepartment: row.hostDepartment ?? undefined,
+    flagReason: row.flagReason ?? undefined,
     entryTime: entryTime.toISOString(),
     entryGuardId: row.checkedInBy ?? row.createdBy ?? "system",
     exitTime: row.checkedOut?.toISOString(),
     exitGuardId: row.checkedOutBy ?? undefined,
-    status: toUiStatus(row, now),
+    status: toUiStatus(row, now, overstayAllowedDays),
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -205,8 +225,8 @@ function buildOccupancySeries(visits: Visit[], now: Date): OccupancyPoint[] {
 
 export async function getParkingSnapshot(): Promise<ParkingSnapshot> {
   const now = new Date();
-  const rows = await readVisitors();
-  const allVisits = rows.map((row) => toVisit(row, now));
+  const [rows, settings] = await Promise.all([readVisitors(), getParkingSettings()]);
+  const allVisits = rows.map((row) => toVisit(row, now, settings.overstayAllowedDays));
   const insideVisits = allVisits.filter((v) => v.status === "inside" || v.status === "overstayed" || v.status === "flagged");
 
   return {
@@ -220,11 +240,11 @@ export async function getParkingSnapshot(): Promise<ParkingSnapshot> {
 
 export async function getVisitById(id: string) {
   const now = new Date();
-  const rows = await readVisitors();
+  const [rows, settings] = await Promise.all([readVisitors(), getParkingSettings()]);
   const row = rows.find((candidate) => candidate.id === id);
   if (!row) return null;
 
-  const visit = toVisit(row, now);
+  const visit = toVisit(row, now, settings.overstayAllowedDays);
   if (row.qrTokenJti) {
     visit.qrToken = await signVisitToken(row.id, row.qrTokenJti);
   }

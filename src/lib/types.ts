@@ -29,6 +29,7 @@ export interface Visit {
   purposeNotes?: string;
   hostStaffId?: string;
   hostDepartment?: string;
+  flagReason?: string;
   entryTime: string;
   entryGuardId: string;
   entryPhotoUrl?: string; // Azure Blob (MY West)

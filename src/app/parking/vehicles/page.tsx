@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 import { PageHeader } from "@/components/ui/page-header";
 import { VehiclesAdmin } from "@/components/parking/vehicles-admin";
 import { getParkingVehicles } from "@/lib/server/parking-data";
+import { requireParkingPageUser } from "@/lib/server/page-auth";
 
 export const metadata: Metadata = { title: "Vehicle Registry" };
 
 export default async function VehiclesPage() {
+  await requireParkingPageUser(["admin"]);
   const vehicles = await getParkingVehicles();
 
   return (

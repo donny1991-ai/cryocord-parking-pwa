@@ -49,6 +49,8 @@ export function visitorEntityFactory(overrides: Partial<VisitorEntity> = {}): Vi
     hostStaffId: null,
     hostDepartment: null,
     flagReason: null,
+    flaggedBy: null,
+    flaggedAt: null,
     qrTokenJti: faker.string.uuid(),
     status: "pending" satisfies VisitorStatus,
     createdBy: null,

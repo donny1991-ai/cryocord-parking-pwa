@@ -88,6 +88,7 @@ export function PreRegisterFlow({
           remarks: purposeNotes || undefined,
           hostStaffId: hostStaffId || undefined,
           hostDepartment: employees.find((employee) => employee.staffId === hostStaffId)?.department,
+          flagReason: known?.blacklisted ? "Plate matched the vehicle blacklist during pre-registration." : undefined,
           checkInOnCreate: false,
         }),
       });

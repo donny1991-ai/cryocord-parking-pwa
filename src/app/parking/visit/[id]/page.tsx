@@ -16,11 +16,14 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { StatusPill, Chip } from "@/components/ui/badge";
 import { QrPass } from "@/components/parking/qr-pass";
+import { VisitorFlagControl } from "@/components/parking/visitor-flag-control";
 import { getDemoEmployees, getVisitAuditTrail, getVisitById } from "@/lib/server/parking-data";
+import { requireParkingPageUser } from "@/lib/server/page-auth";
 import { formatDateTime } from "@/lib/utils";
 import { purposeLabel, visitTypeLabel } from "@/lib/labels";
 
 export default async function VisitDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const actor = await requireParkingPageUser();
   const { id } = await params;
   const visit = await getVisitById(id);
   if (!visit) notFound();
@@ -71,6 +74,10 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
           <DetailRow icon={Hash} label="Notes" value={visit.purposeNotes} />
         )}
       </GlassCard>
+
+      {actor.role === "admin" && live && (
+        <VisitorFlagControl visitId={visit.id} initialReason={visit.flagReason} />
+      )}
 
       {canQuickRegister && (
         <div className="pt-2">

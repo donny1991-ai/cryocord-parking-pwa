@@ -2,6 +2,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { POST as createVisitorEndpoint } from "@/app/api/visitors/route";
 import { POST as scanVisitorEndpoint } from "@/app/api/visitors/scan/route";
+import {
+  DELETE as clearVisitorFlagEndpoint,
+  PUT as flagVisitorEndpoint,
+} from "@/app/api/admin/visitors/[id]/flag/route";
 import { AppDataSource } from "@/db/data-source";
 import { VisitorScanEventSchema, VisitorSchema } from "@/db/entities";
 import { createVisitorInputFactory } from "@/test/factories/visitor.factory";
@@ -13,14 +17,21 @@ import { signVisitToken } from "@/lib/qr";
 import { getParkingSnapshot, getVisitById } from "./parking-data";
 import { createVisitorPass, scanVisitorPass } from "./visitors";
 
-function jsonRequest(path: string, body: unknown, token?: string) {
+function jsonRequest(path: string, body: unknown, token?: string, method = "POST") {
   return new NextRequest(`http://localhost${path}`, {
-    method: "POST",
+    method,
     headers: {
       "content-type": "application/json",
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
+  });
+}
+
+function emptyRequest(path: string, token?: string, method = "GET") {
+  return new NextRequest(`http://localhost${path}`, {
+    method,
+    headers: token ? { authorization: `Bearer ${token}` } : {},
   });
 }
 
@@ -396,5 +407,45 @@ describe("visitor pass database flow", () => {
       status: "pending",
       qrToken: expect.any(String),
     });
+  });
+
+  it("allows admins to flag and clear checked-in visitors", async () => {
+    const admin = await seedParkingUser(AppDataSource.manager, { role: "admin" });
+    const token = await signTestSupabaseAccessToken(admin.id);
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({ vehicleNumber: "FLAG 100", typeCode: "guest" }),
+    );
+    await scanVisitorPass({ token: issued.token, action: "check_in", guardId: admin.id });
+
+    const flagResponse = await flagVisitorEndpoint(
+      jsonRequest(
+        `/api/admin/visitors/${issued.visitor.id}/flag`,
+        { flagReason: "Escalated by security desk." },
+        token,
+        "PUT",
+      ),
+      { params: Promise.resolve({ id: issued.visitor.id }) },
+    );
+
+    expect(flagResponse.status).toBe(200);
+    let visitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: issued.visitor.id });
+    expect(visitor.flagReason).toBe("Escalated by security desk.");
+    expect(visitor.flaggedBy).toBe(admin.id);
+    expect(visitor.flaggedAt).toEqual(expect.any(Date));
+    await expect(getVisitById(issued.visitor.id)).resolves.toMatchObject({
+      status: "flagged",
+      flagReason: "Escalated by security desk.",
+    });
+
+    const clearResponse = await clearVisitorFlagEndpoint(
+      emptyRequest(`/api/admin/visitors/${issued.visitor.id}/flag`, token, "DELETE"),
+      { params: Promise.resolve({ id: issued.visitor.id }) },
+    );
+
+    expect(clearResponse.status).toBe(200);
+    visitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: issued.visitor.id });
+    expect(visitor.flagReason).toBeNull();
+    expect(visitor.flaggedBy).toBeNull();
+    expect(visitor.flaggedAt).toBeNull();
   });
 });
