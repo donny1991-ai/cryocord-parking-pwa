@@ -46,6 +46,7 @@ export function visitorEntityFactory(overrides: Partial<VisitorEntity> = {}): Vi
     typeId: 1,
     remarks: null,
     purpose: "other",
+    visitDate: null,
     hostStaffId: null,
     hostDepartment: null,
     flagReason: null,

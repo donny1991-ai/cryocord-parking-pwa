@@ -5,6 +5,7 @@ export type VisitorScanEventType =
   | "pass_issued"
   | "check_in"
   | "check_out"
+  | "pass_cancelled"
   | "scan_rejected";
 
 export interface VisitorScanEventEntity {
@@ -37,7 +38,7 @@ export const VisitorScanEventSchema = new EntitySchema<VisitorScanEventEntity>({
       name: "event_type",
       type: "enum",
       enumName: "visitor_scan_event_type",
-      enum: ["pass_issued", "check_in", "check_out", "scan_rejected"],
+      enum: ["pass_issued", "check_in", "check_out", "pass_cancelled", "scan_rejected"],
     },
     guardId: {
       name: "guard_id",

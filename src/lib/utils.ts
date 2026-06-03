@@ -1,6 +1,8 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
+const APP_TIME_ZONE = "Asia/Kuala_Lumpur";
+
 /** Tailwind-aware className combiner (shadcn convention). */
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -10,6 +12,7 @@ export function cn(...inputs: ClassValue[]) {
 export function formatTime(d: Date | string): string {
   const date = typeof d === "string" ? new Date(d) : d;
   return date.toLocaleTimeString("en-GB", {
+    timeZone: APP_TIME_ZONE,
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -19,10 +22,27 @@ export function formatTime(d: Date | string): string {
 export function formatDateTime(d: Date | string): string {
   const date = typeof d === "string" ? new Date(d) : d;
   return date.toLocaleString("en-GB", {
+    timeZone: APP_TIME_ZONE,
     day: "2-digit",
-    month: "short",
+    month: "long",
     hour: "2-digit",
     minute: "2-digit",
+  });
+}
+
+/** "26 May 2026" */
+export function formatDate(d: Date | string): string {
+  const date =
+    typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)
+      ? new Date(`${d}T00:00:00+08:00`)
+      : typeof d === "string"
+        ? new Date(d)
+        : d;
+  return date.toLocaleDateString("en-GB", {
+    timeZone: APP_TIME_ZONE,
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
   });
 }
 

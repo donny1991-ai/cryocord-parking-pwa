@@ -10,13 +10,20 @@ import { QrPass } from "./qr-pass";
 import { PURPOSES, VISIT_TYPES, type Purpose, type VisitType } from "@/lib/enums";
 import { labelize } from "@/lib/labels";
 import { buildPassMessage, waLink } from "@/lib/whatsapp";
-import { cn, normalisePlate } from "@/lib/utils";
+import { cn, formatDateTime, normalisePlate } from "@/lib/utils";
 import type { Employee, Vehicle } from "@/lib/types";
 
 type Step = "form" | "pass";
 
+function todayInputDate() {
+  const today = new Date();
+  today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+  return today.toISOString().slice(0, 10);
+}
+
 export interface PreRegisterInitialValues {
   plate?: string;
+  visitDate?: string;
   visitorName?: string;
   visitorContact?: string;
   visitType?: VisitType;
@@ -36,13 +43,14 @@ export function PreRegisterFlow({
 }) {
   const [step, setStep] = useState<Step>("form");
   const [plate, setPlate] = useState(initialValues?.plate ?? "");
+  const [visitDate, setVisitDate] = useState(initialValues?.visitDate ?? "");
   const [visitorName, setVisitorName] = useState(initialValues?.visitorName ?? "");
   const [visitorContact, setVisitorContact] = useState(initialValues?.visitorContact ?? "");
   const [visitType, setVisitType] = useState<VisitType>(initialValues?.visitType ?? "guest");
   const [purpose, setPurpose] = useState<Purpose>(initialValues?.purpose ?? "meeting");
   const [purposeNotes, setPurposeNotes] = useState(initialValues?.purposeNotes ?? "");
   const [hostStaffId, setHostStaffId] = useState(initialValues?.hostStaffId ?? "");
-  const [issued, setIssued] = useState<{ id: string; token: string } | null>(null);
+  const [issued, setIssued] = useState<{ id: string; token: string; tokenExpiresAt: string } | null>(null);
   const [issuing, setIssuing] = useState(false);
   const [issueError, setIssueError] = useState<string | null>(null);
   const origin = typeof window === "undefined" ? "" : window.location.origin;
@@ -66,6 +74,7 @@ export function PreRegisterFlow({
 
   const canIssue =
     normalisePlate(plate).length >= 3 &&
+    visitDate &&
     visitorName.trim() &&
     visitorContact.trim() &&
     (purpose !== "other" || purposeNotes.trim());
@@ -85,6 +94,7 @@ export function PreRegisterFlow({
           vehicleNumber: plate,
           typeCode: visitType,
           purpose,
+          visitDate,
           remarks: purposeNotes || undefined,
           hostStaffId: hostStaffId || undefined,
           hostDepartment: employees.find((employee) => employee.staffId === hostStaffId)?.department,
@@ -99,7 +109,7 @@ export function PreRegisterFlow({
       }
 
       const payload = await response.json();
-      setIssued({ id: payload.visitor.id, token: payload.token });
+      setIssued({ id: payload.visitor.id, token: payload.token, tokenExpiresAt: payload.tokenExpiresAt });
       setStep("pass");
     } catch (error) {
       setIssueError(error instanceof Error ? error.message : "Visitor pass could not be saved.");
@@ -110,9 +120,10 @@ export function PreRegisterFlow({
 
   if (step === "pass" && issued) {
     const passUrl = origin ? `${origin}/pass/${encodeURIComponent(issued.token)}` : undefined;
+    const validUntil = formatDateTime(issued.tokenExpiresAt);
     const waHref = waLink(
       visitorContact,
-      buildPassMessage({ visitorName, plate, visitType, validUntil: "24 Aug 2026", passUrl }),
+      buildPassMessage({ visitorName, plate, visitType, validUntil, passUrl }),
     );
 
     return (
@@ -127,7 +138,7 @@ export function PreRegisterFlow({
           plate={plate}
           visitorName={visitorName}
           visitType={visitType}
-          validUntil="24 Aug 2026"
+          validUntil={validUntil}
           heading="Scan at gate to check in"
         />
         <div className="mx-auto flex max-w-sm flex-col gap-2.5">
@@ -164,6 +175,15 @@ export function PreRegisterFlow({
             inputMode="text"
             autoCapitalize="characters"
             className="font-bold tracking-wide"
+          />
+        </Field>
+
+        <Field label="Visit date" required>
+          <Input
+            value={visitDate}
+            onChange={(event) => setVisitDate(event.target.value)}
+            type="date"
+            min={todayInputDate()}
           />
         </Field>
 

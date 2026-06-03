@@ -15,6 +15,7 @@ export interface VisitorEntity {
   type?: VisitorTypeEntity;
   remarks: string | null;
   purpose: string;
+  visitDate: string | null;
   hostStaffId: string | null;
   hostDepartment: string | null;
   flagReason: string | null;
@@ -80,6 +81,11 @@ export const VisitorSchema = new EntitySchema<VisitorEntity>({
       type: String,
       length: 32,
       default: "'other'",
+    },
+    visitDate: {
+      name: "visit_date",
+      type: "date",
+      nullable: true,
     },
     hostStaffId: {
       name: "host_staff_id",

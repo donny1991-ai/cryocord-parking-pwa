@@ -49,51 +49,53 @@ export default async function AdminPage() {
         )}
       </section>
 
-      <section className="space-y-2.5">
+      <section className="space-y-3">
         <h2 className="px-1 text-sm font-bold uppercase tracking-wide text-ink-faint">Manage</h2>
-        <Link href="/parking/vehicles">
-          <GlassCard interactive padding="md" className="flex items-center gap-3">
+        <div className="grid gap-3">
+          <Link href="/parking/vehicles" className="block">
+            <GlassCard interactive padding="md" className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10">
+                <CarFront className="h-5 w-5 text-brand" />
+              </span>
+              <span className="flex-1 font-semibold text-ink">Vehicle registry & blacklist</span>
+              <ChevronRight className="h-4 w-4 text-ink-faint" />
+            </GlassCard>
+          </Link>
+          <Link href="/parking/users" className="block">
+            <GlassCard interactive padding="md" className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10">
+                <UsersRound className="h-5 w-5 text-brand" />
+              </span>
+              <div className="flex-1">
+                <p className="font-semibold text-ink">User management</p>
+                <p className="text-xs text-ink-faint">Create guards, assign roles, and disable access.</p>
+              </div>
+              <ChevronRight className="h-4 w-4 text-ink-faint" />
+            </GlassCard>
+          </Link>
+          <Link href="/parking/settings" className="block">
+            <GlassCard interactive padding="md" className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10">
+                <Settings className="h-5 w-5 text-brand" />
+              </span>
+              <div className="flex-1">
+                <p className="font-semibold text-ink">Configuration</p>
+                <p className="text-xs text-ink-faint">Token expiry and overstay thresholds.</p>
+              </div>
+              <ChevronRight className="h-4 w-4 text-ink-faint" />
+            </GlassCard>
+          </Link>
+          <GlassCard padding="md" className="flex items-center gap-3">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10">
-              <CarFront className="h-5 w-5 text-brand" />
-            </span>
-            <span className="flex-1 font-semibold text-ink">Vehicle registry & blacklist</span>
-            <ChevronRight className="h-4 w-4 text-ink-faint" />
-          </GlassCard>
-        </Link>
-        <Link href="/parking/users">
-          <GlassCard interactive padding="md" className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10">
-              <UsersRound className="h-5 w-5 text-brand" />
+              <Download className="h-5 w-5 text-brand" />
             </span>
             <div className="flex-1">
-              <p className="font-semibold text-ink">User management</p>
-              <p className="text-xs text-ink-faint">Create guards, assign roles, and disable access.</p>
+              <p className="font-semibold text-ink">Export visit log</p>
+              <p className="text-xs text-ink-faint">Every export is audit-logged &amp; DPO-gated.</p>
             </div>
             <ChevronRight className="h-4 w-4 text-ink-faint" />
           </GlassCard>
-        </Link>
-        <Link href="/parking/settings">
-          <GlassCard interactive padding="md" className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10">
-              <Settings className="h-5 w-5 text-brand" />
-            </span>
-            <div className="flex-1">
-              <p className="font-semibold text-ink">Configuration</p>
-              <p className="text-xs text-ink-faint">Token expiry and overstay thresholds.</p>
-            </div>
-            <ChevronRight className="h-4 w-4 text-ink-faint" />
-          </GlassCard>
-        </Link>
-        <GlassCard padding="md" className="flex items-center gap-3">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10">
-            <Download className="h-5 w-5 text-brand" />
-          </span>
-          <div className="flex-1">
-            <p className="font-semibold text-ink">Export visit log</p>
-            <p className="text-xs text-ink-faint">Every export is audit-logged &amp; DPO-gated.</p>
-          </div>
-          <ChevronRight className="h-4 w-4 text-ink-faint" />
-        </GlassCard>
+        </div>
       </section>
 
       <GlassCard variant="bare" padding="sm" className="flex items-start gap-2.5">

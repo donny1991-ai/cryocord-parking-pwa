@@ -23,7 +23,7 @@ export const PURPOSES = [
 ] as const;
 export type Purpose = (typeof PURPOSES)[number];
 
-export const STATUSES = ["pending", "inside", "exited", "overstayed", "flagged"] as const;
+export const STATUSES = ["pending", "inside", "exited", "overstayed", "flagged", "cancelled"] as const;
 export type Status = (typeof STATUSES)[number];
 
 export const OWNER_TYPES = [

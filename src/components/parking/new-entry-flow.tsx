@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { BadgeCheck, CheckCircle2, Send, ShieldCheck, Sparkles } from "lucide-react";
+import { BadgeCheck, Check, CheckCircle2, Pencil, Send, ShieldCheck, Sparkles, X } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input, Select, Field } from "@/components/ui/input";
@@ -11,7 +11,7 @@ import { PlateCapture } from "./plate-capture";
 import { QrPass } from "./qr-pass";
 import { VISIT_TYPES, PURPOSES, type VisitType, type Purpose } from "@/lib/enums";
 import { labelize } from "@/lib/labels";
-import { cn, normalisePlate } from "@/lib/utils";
+import { cn, formatDateTime, normalisePlate } from "@/lib/utils";
 import { buildPassMessage, waLink } from "@/lib/whatsapp";
 import type { Employee, Vehicle } from "@/lib/types";
 
@@ -20,6 +20,8 @@ type Step = "capture" | "form" | "pass";
 export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; vehicles: Vehicle[] }) {
   const [step, setStep] = useState<Step>("capture");
   const [plate, setPlate] = useState("");
+  const [editingPlate, setEditingPlate] = useState(false);
+  const [plateDraft, setPlateDraft] = useState("");
 
   const known = useMemo(() => {
     const normalised = normalisePlate(plate);
@@ -35,12 +37,11 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
   const [showIc, setShowIc] = useState(false);
   const [visitorIc, setVisitorIc] = useState("");
   const origin = typeof window === "undefined" ? "" : window.location.origin;
-  const [issued, setIssued] = useState<{ id: string; token: string } | null>(null);
+  const [issued, setIssued] = useState<{ id: string; token: string; tokenExpiresAt: string } | null>(null);
   const [issuing, setIssuing] = useState(false);
   const [issueError, setIssueError] = useState<string | null>(null);
 
-  function selectPlate(p: string) {
-    setPlate(p);
+  function prefillKnownVehicle(p: string) {
     const normalised = normalisePlate(p);
     const veh = vehicles.find((vehicle) => vehicle.plateNormalised === normalised);
     if (veh) {
@@ -50,7 +51,30 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
         setVisitType(veh.ownerType as VisitType);
       }
     }
+  }
+
+  function selectPlate(p: string) {
+    const nextPlate = normalisePlate(p);
+    setPlate(nextPlate);
+    setPlateDraft(nextPlate);
+    setEditingPlate(false);
+    prefillKnownVehicle(nextPlate);
     setStep("form");
+  }
+
+  function startPlateEdit() {
+    setPlateDraft(plate);
+    setEditingPlate(true);
+  }
+
+  function savePlateEdit() {
+    const nextPlate = normalisePlate(plateDraft);
+    if (nextPlate.length < 3) return;
+
+    setPlate(nextPlate);
+    setPlateDraft(nextPlate);
+    setEditingPlate(false);
+    prefillKnownVehicle(nextPlate);
   }
 
   const canIssue = plate && visitorName.trim() && visitorContact.trim() && (purpose !== "other" || purposeNotes.trim());
@@ -85,7 +109,7 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
       }
 
       const payload = await response.json();
-      setIssued({ id: payload.visitor.id, token: payload.token });
+      setIssued({ id: payload.visitor.id, token: payload.token, tokenExpiresAt: payload.tokenExpiresAt });
       setStep("pass");
     } catch (error) {
       setIssueError(
@@ -107,9 +131,10 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
 
   if (step === "pass" && issued) {
     const passUrl = origin ? `${origin}/pass/${encodeURIComponent(issued.token)}` : undefined;
+    const validUntil = formatDateTime(issued.tokenExpiresAt);
     const waHref = waLink(
       visitorContact,
-      buildPassMessage({ visitorName, plate, visitType, validUntil: "24 Aug 2026", passUrl }),
+      buildPassMessage({ visitorName, plate, visitType, validUntil, passUrl }),
     );
     return (
       <div className="space-y-5">
@@ -123,7 +148,7 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
           plate={plate}
           visitorName={visitorName}
           visitType={visitType}
-          validUntil="24 Aug 2026"
+          validUntil={validUntil}
         />
         <div className="mx-auto flex max-w-sm flex-col gap-2.5">
           {waHref ? (
@@ -157,14 +182,79 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
       <StepDots step={2} />
 
       {/* Plate header */}
-      <GlassCard padding="md" className="flex items-center justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Plate</p>
-          <p className="text-2xl font-bold tracking-wide text-ink">{plate}</p>
+      <GlassCard padding="md" className="space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Plate</p>
+            {editingPlate ? (
+              <Input
+                value={plateDraft}
+                onChange={(event) => setPlateDraft(event.target.value.toUpperCase())}
+                placeholder="e.g. WA 18 K"
+                inputMode="text"
+                autoCapitalize="characters"
+                className="mt-1 h-11 text-xl font-bold tracking-wide"
+                autoFocus
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") savePlateEdit();
+                  if (event.key === "Escape") setEditingPlate(false);
+                }}
+              />
+            ) : (
+              <p className="truncate text-2xl font-bold tracking-wide text-ink">{plate}</p>
+            )}
+          </div>
+
+          {editingPlate ? (
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Cancel plate edit"
+                onClick={() => {
+                  setPlateDraft(plate);
+                  setEditingPlate(false);
+                }}
+              >
+                <X className="h-5 w-5" />
+              </Button>
+              <Button
+                type="button"
+                variant="subtle"
+                size="icon"
+                aria-label="Save plate"
+                disabled={normalisePlate(plateDraft).length < 3}
+                onClick={savePlateEdit}
+              >
+                <Check className="h-5 w-5" />
+              </Button>
+            </div>
+          ) : (
+            <div className="flex shrink-0 items-center gap-3">
+              <button type="button" onClick={startPlateEdit} className="text-xs font-semibold text-brand">
+                <Pencil className="mr-1 inline h-3.5 w-3.5" />
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingPlate(false);
+                  setStep("capture");
+                }}
+                className="text-xs font-semibold text-brand"
+              >
+                Re-scan
+              </button>
+            </div>
+          )}
         </div>
-        <button onClick={() => setStep("capture")} className="text-xs font-semibold text-brand">
-          Re-scan
-        </button>
+
+        {editingPlate && (
+          <p className="text-[11px] leading-relaxed text-ink-faint">
+            Correct the OCR result before logging the entry. Spaces and dashes are removed when saved.
+          </p>
+        )}
       </GlassCard>
 
       {known && (

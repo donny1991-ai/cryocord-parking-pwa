@@ -12,11 +12,13 @@ import { SignJWT, jwtVerify } from "jose";
 
 const DEV_SIGNING_KEY = "dev-only-insecure-key-rotate-in-prod";
 
-const NINETY_DAYS_S = 90 * 24 * 60 * 60;
+export const VISIT_TOKEN_TTL_SECONDS = 24 * 60 * 60;
+const MALAYSIA_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 export interface PassClaims {
   visitId: string;
   tokenId?: string;
+  expiresAt?: string;
 }
 
 export function assertQrSigningConfigured() {
@@ -34,14 +36,40 @@ function getKeyId() {
   return process.env.PARKING_QR_KEY_ID ?? "dev";
 }
 
+export function getVisitTokenExpiresAt(issuedAt: Date = new Date()) {
+  return new Date((Math.floor(issuedAt.getTime() / 1000) + VISIT_TOKEN_TTL_SECONDS) * 1000);
+}
+
+export function getPreRegistrationTokenExpiresAt(visitDate: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(visitDate);
+  if (!match) {
+    throw new Error("Visit date must use YYYY-MM-DD format.");
+  }
+
+  const [, year, month, day] = match;
+  const yearNumber = Number(year);
+  const monthIndex = Number(month) - 1;
+  const dayNumber = Number(day);
+  const midnightAfterVisitDayInMalaysia = Date.UTC(yearNumber, monthIndex, dayNumber + 1, 0, 0, 0, 0);
+  return new Date(midnightAfterVisitDayInMalaysia - MALAYSIA_UTC_OFFSET_MS - 1000);
+}
+
 /** Sign an opaque pass token for a visit. Server-side only. */
-export async function signVisitToken(visitId: string, tokenId?: string): Promise<string> {
+export async function signVisitToken(
+  visitId: string,
+  tokenId?: string,
+  issuedAt: Date = new Date(),
+  expiresAt: Date = getVisitTokenExpiresAt(issuedAt),
+): Promise<string> {
+  const issuedAtSeconds = Math.floor(issuedAt.getTime() / 1000);
+  const expiresAtSeconds = Math.floor(expiresAt.getTime() / 1000);
+
   return new SignJWT({ visitId } satisfies PassClaims)
     .setProtectedHeader({ alg: "HS256", kid: getKeyId() })
-    .setIssuedAt()
+    .setIssuedAt(issuedAtSeconds)
     .setIssuer("cryocord-parking")
     .setJti(tokenId ?? crypto.randomUUID())
-    .setExpirationTime(`${NINETY_DAYS_S}s`)
+    .setExpirationTime(expiresAtSeconds)
     .sign(getSigningKey());
 }
 
@@ -56,5 +84,6 @@ export async function verifyVisitToken(token: string): Promise<PassClaims> {
   return {
     visitId: payload.visitId,
     tokenId: typeof payload.jti === "string" ? payload.jti : undefined,
+    expiresAt: typeof payload.exp === "number" ? new Date(payload.exp * 1000).toISOString() : undefined,
   };
 }

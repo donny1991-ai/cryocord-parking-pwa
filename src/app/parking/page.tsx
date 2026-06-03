@@ -86,12 +86,12 @@ export default async function DashboardPage() {
 
       {/* Flagged callout */}
       {c.flagged > 0 && (
-        <Link href="/parking/admin">
+        <Link href="/parking/admin" className="block">
           <GlassCard
             variant="bare"
             interactive
             padding="sm"
-            className="flex items-center gap-3 border-brand/30 bg-brand-tint/70"
+            className="flex min-h-[4.75rem] items-center gap-3 border-brand/30 bg-brand-tint/70"
           >
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/15">
               <Flag className="h-5 w-5 text-brand" />

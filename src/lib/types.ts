@@ -27,6 +27,7 @@ export interface Visit {
   visitType: VisitType;
   purpose: Purpose;
   purposeNotes?: string;
+  visitDate?: string;
   hostStaffId?: string;
   hostDepartment?: string;
   flagReason?: string;
@@ -36,6 +37,7 @@ export interface Visit {
   exitTime?: string;
   exitGuardId?: string;
   qrToken?: string; // opaque signed reference, no PII (see lib/qr.ts)
+  qrTokenExpiresAt?: string;
   status: Status;
   createdAt: string;
 }

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { GET as getSettingsEndpoint } from "@/app/api/admin/settings/route";
-import { GET as getUsersEndpoint } from "@/app/api/admin/users/route";
+import { GET as getUsersEndpoint, POST as createUserEndpoint } from "@/app/api/admin/users/route";
 import { POST as createVehicleEndpoint } from "@/app/api/admin/vehicles/route";
 import { PUT as flagVisitorEndpoint } from "@/app/api/admin/visitors/[id]/flag/route";
 import { AppDataSource } from "@/db/data-source";
@@ -68,5 +68,33 @@ describe("admin API access control", () => {
         error: "Parking access is not permitted for this account.",
       });
     }
+  });
+
+  it("allows admins to create parking users", async () => {
+    const admin = await seedParkingUser(AppDataSource.manager, { role: "admin" });
+    const token = await signTestSupabaseAccessToken(admin.id);
+
+    const response = await createUserEndpoint(
+      request("/api/admin/users", token, {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Khal",
+          email: "khalili.kamal@cryocord.com.my",
+          phone: "0111111111",
+          role: "guard",
+          active: true,
+        }),
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(payload.user).toMatchObject({
+      name: "Khal",
+      email: "khalili.kamal@cryocord.com.my",
+      phone: "0111111111",
+      role: "guard",
+      active: true,
+    });
   });
 });

@@ -9,6 +9,8 @@ RUN npm ci
 
 FROM base AS builder
 RUN apk add --no-cache libc6-compat
+ARG NEXT_PUBLIC_DISABLE_PWA=false
+ENV NEXT_PUBLIC_DISABLE_PWA=$NEXT_PUBLIC_DISABLE_PWA
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build

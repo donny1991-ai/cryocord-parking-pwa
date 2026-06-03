@@ -128,8 +128,8 @@ export function ExitFlow({
           <Row label="Duration on site" value={durationSince(selected.entryTime, now)} />
           <Row label="Exit time" value={formatTime(now)} />
         </GlassCard>
-        <Link href="/parking" prefetch={false}>
-          <Button variant="glass" className="mx-auto w-full max-w-sm">Done</Button>
+        <Link href="/parking" prefetch={false} className="mx-auto block w-full max-w-sm pt-2">
+          <Button variant="glass" className="w-full">Done</Button>
         </Link>
       </div>
     );

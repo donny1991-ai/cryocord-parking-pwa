@@ -55,6 +55,9 @@ npm run lint
 docker compose build
 docker compose up
 
+# Local Docker dev server with Next.js Fast Refresh / hot reload.
+docker compose --profile dev up app-dev
+
 # Run migrations against the local Supabase dev database.
 docker compose --profile tools run --rm migrate
 ```

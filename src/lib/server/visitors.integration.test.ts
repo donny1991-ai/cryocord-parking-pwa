@@ -6,6 +6,7 @@ import {
   DELETE as clearVisitorFlagEndpoint,
   PUT as flagVisitorEndpoint,
 } from "@/app/api/admin/visitors/[id]/flag/route";
+import { POST as cancelVisitorEndpoint } from "@/app/api/visitors/[id]/cancel/route";
 import { AppDataSource } from "@/db/data-source";
 import { VisitorScanEventSchema, VisitorSchema } from "@/db/entities";
 import { createVisitorInputFactory } from "@/test/factories/visitor.factory";
@@ -13,9 +14,9 @@ import { refreshParkingTestDatabase } from "@/test/refresh-database";
 import { seedParkingUser } from "@/test/seeders/parking-user.seeder";
 import { seedVisitorTypes } from "@/test/seeders/visitor-type.seeder";
 import { signTestSupabaseAccessToken } from "@/test/auth-token";
-import { signVisitToken } from "@/lib/qr";
+import { getPreRegistrationTokenExpiresAt, signVisitToken } from "@/lib/qr";
 import { getParkingSnapshot, getVisitById } from "./parking-data";
-import { createVisitorPass, scanVisitorPass } from "./visitors";
+import { createVisitorPass, getPublicVisitorPass, scanVisitorPass } from "./visitors";
 
 function jsonRequest(path: string, body: unknown, token?: string, method = "POST") {
   return new NextRequest(`http://localhost${path}`, {
@@ -33,6 +34,13 @@ function emptyRequest(path: string, token?: string, method = "GET") {
     method,
     headers: token ? { authorization: `Bearer ${token}` } : {},
   });
+}
+
+function futureVisitDate(daysFromNow = 30) {
+  const date = new Date();
+  date.setDate(date.getDate() + daysFromNow);
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 10);
 }
 
 describe("visitor pass database flow", () => {
@@ -65,6 +73,7 @@ describe("visitor pass database flow", () => {
     const issued = await createVisitorPass(input);
 
     expect(issued.token).toBeTruthy();
+    expect(issued.tokenExpiresAt).toEqual(expect.any(String));
     expect(issued.visitor).toMatchObject({
       name: "Aisyah Test Visitor",
       phoneNumber: "+60 12-345 6789",
@@ -147,6 +156,114 @@ describe("visitor pass database flow", () => {
     await expect(scanVisitorPass({ token: issued.token, action: "auto" })).rejects.toThrow(
       "Visitor has already checked out.",
     );
+  });
+
+  it("hides the public QR pass after checkout", async () => {
+    const issued = await createVisitorPass(createVisitorInputFactory({ typeCode: "guest" }));
+
+    await expect(getPublicVisitorPass(issued.token)).resolves.toMatchObject({
+      state: "active",
+      status: "pending",
+      token: issued.token,
+      validUntil: issued.tokenExpiresAt,
+    });
+
+    await scanVisitorPass({ token: issued.token, action: "auto" });
+    await expect(getPublicVisitorPass(issued.token)).resolves.toMatchObject({
+      state: "active",
+      status: "checked_in",
+      token: issued.token,
+    });
+
+    await scanVisitorPass({ token: issued.token, action: "auto" });
+    await expect(getPublicVisitorPass(issued.token)).resolves.toMatchObject({
+      state: "inactive",
+      title: "Pass already used",
+    });
+  });
+
+  it("extends pre-registration token expiry to the selected visit date grace period", async () => {
+    const visitDate = futureVisitDate();
+    const issued = await createVisitorPass(createVisitorInputFactory({ typeCode: "guest", visitDate }));
+    const visitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: issued.visitor.id });
+
+    expect(visitor.visitDate).toBe(visitDate);
+    expect(issued.tokenExpiresAt).toBe(getPreRegistrationTokenExpiresAt(visitDate).toISOString());
+    await expect(getPublicVisitorPass(issued.token)).resolves.toMatchObject({
+      state: "active",
+      validUntil: issued.tokenExpiresAt,
+    });
+
+    const oldStyleToken = await signVisitToken(
+      issued.visitor.id,
+      visitor.qrTokenJti ?? undefined,
+      new Date(visitor.createdAt),
+      new Date(getPreRegistrationTokenExpiresAt(visitDate).getTime() + 24 * 60 * 60 * 1000),
+    );
+
+    await expect(getPublicVisitorPass(oldStyleToken)).resolves.toMatchObject({
+      state: "active",
+      validUntil: issued.tokenExpiresAt,
+    });
+  });
+
+  it("loads pre-registered visit details with the selected visit date expiry", async () => {
+    const visitDate = futureVisitDate();
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({
+        vehicleNumber: "PRE 7788",
+        typeCode: "guest",
+        visitDate,
+      }),
+    );
+
+    await expect(getVisitById(issued.visitor.id)).resolves.toMatchObject({
+      plate: "PRE 7788",
+      status: "pending",
+      visitDate,
+      qrToken: expect.any(String),
+      qrTokenExpiresAt: getPreRegistrationTokenExpiresAt(visitDate).toISOString(),
+    });
+  });
+
+  it("cancels pending visitor passes and hides the public QR", async () => {
+    const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
+    const token = await signTestSupabaseAccessToken(guard.id);
+    const visitDate = futureVisitDate();
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({
+        vehicleNumber: "CXL 500",
+        typeCode: "guest",
+        visitDate,
+      }),
+    );
+
+    const response = await cancelVisitorEndpoint(
+      emptyRequest(`/api/visitors/${issued.visitor.id}/cancel`, token, "POST"),
+      { params: Promise.resolve({ id: issued.visitor.id }) },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      visitor: {
+        id: issued.visitor.id,
+        status: "cancelled",
+      },
+    });
+
+    const visitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: issued.visitor.id });
+    expect(visitor.status).toBe("cancelled");
+    expect(visitor.qrTokenJti).toBeNull();
+
+    await expect(getPublicVisitorPass(issued.token)).resolves.toMatchObject({
+      state: "inactive",
+      title: "Pass cancelled",
+    });
+    await expect(getVisitById(issued.visitor.id)).resolves.toMatchObject({
+      plate: "CXL 500",
+      status: "cancelled",
+      visitDate,
+    });
   });
 
   it("rejects invalid visitor type codes", async () => {
@@ -345,6 +462,7 @@ describe("visitor pass database flow", () => {
   it("supports pre-registered QR arrival check-in through the authenticated endpoint", async () => {
     const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
     const token = await signTestSupabaseAccessToken(guard.id);
+    const visitDate = futureVisitDate();
 
     const issuedResponse = await createVisitorEndpoint(
       jsonRequest(
@@ -355,6 +473,7 @@ describe("visitor pass database flow", () => {
             vehicleNumber: "PRE 4321",
             typeCode: "guest",
           }),
+          visitDate,
           checkInOnCreate: false,
         },
         token,
@@ -365,6 +484,7 @@ describe("visitor pass database flow", () => {
     const issued = await issuedResponse.json();
     expect(issued.visitor.status).toBe("pending");
     expect(issued.visitor.checkedIn).toBeNull();
+    expect(issued.tokenExpiresAt).toBe(getPreRegistrationTokenExpiresAt(visitDate).toISOString());
 
     const arrivalResponse = await scanVisitorEndpoint(
       jsonRequest("/api/visitors/scan", { token: issued.token, action: "check_in" }, token),

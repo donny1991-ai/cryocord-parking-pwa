@@ -1,4 +1,6 @@
 import type { Metadata, Viewport } from "next";
+import { DevServiceWorkerReset } from "@/components/dev-service-worker-reset";
+import { LocalServiceWorkerReset } from "@/components/local-service-worker-reset";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -33,7 +35,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="font-sans antialiased text-ink">{children}</body>
+      <body className="font-sans antialiased text-ink">
+        {process.env.NODE_ENV === "development" && <DevServiceWorkerReset />}
+        {process.env.NEXT_PUBLIC_DISABLE_PWA === "true" && <LocalServiceWorkerReset />}
+        {children}
+      </body>
     </html>
   );
 }

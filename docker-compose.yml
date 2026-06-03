@@ -3,6 +3,8 @@ services:
     build:
       context: .
       target: runner
+      args:
+        NEXT_PUBLIC_DISABLE_PWA: "true"
     image: cryocord-parking-pwa:local
     ports:
       - "3000:3000"
@@ -14,6 +16,30 @@ services:
       DATABASE_SSL: "false"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  app-dev:
+    build:
+      context: .
+      target: deps
+    command: npm run dev -- -H 0.0.0.0
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql://postgres:postgres@host.docker.internal:54322/postgres}
+      DATABASE_SSL: "false"
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - .:/app
+      - app-dev-node-modules:/app/node_modules
+      - app-dev-next:/app/.next
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    profiles:
+      - dev
 
   migrate:
     build:
@@ -73,3 +99,7 @@ services:
       - "host.docker.internal:host-gateway"
     profiles:
       - tools
+
+volumes:
+  app-dev-node-modules:
+  app-dev-next:

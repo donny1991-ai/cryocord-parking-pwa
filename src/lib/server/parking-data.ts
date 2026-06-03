@@ -2,7 +2,7 @@ import "server-only";
 import { getParkingDataSource } from "@/db/client";
 import type { OwnerType, Purpose, Status, VisitType } from "@/lib/enums";
 import { OWNER_TYPES, PURPOSES, VISIT_TYPES } from "@/lib/enums";
-import { signVisitToken } from "@/lib/qr";
+import { getPreRegistrationTokenExpiresAt, getVisitTokenExpiresAt, signVisitToken } from "@/lib/qr";
 import { getParkingSettings } from "@/lib/server/admin-settings";
 import type { AuditEntry, Employee, Vehicle, Visit } from "@/lib/types";
 
@@ -48,6 +48,7 @@ interface VisitorReadRow {
   checkedOut: Date | null;
   typeCode: string;
   purpose: string;
+  visitDate: string | Date | null;
   remarks: string | null;
   hostStaffId: string | null;
   hostDepartment: string | null;
@@ -63,7 +64,7 @@ interface VisitorReadRow {
 interface ScanEventReadRow {
   id: string;
   visitorId: string | null;
-  eventType: "pass_issued" | "check_in" | "check_out" | "scan_rejected";
+  eventType: "pass_issued" | "check_in" | "check_out" | "pass_cancelled" | "scan_rejected";
   guardId: string | null;
   scannedAt: Date;
 }
@@ -114,7 +115,10 @@ export function isOverstayed(checkedIn: Date, now: Date, allowedDays: number) {
 }
 
 function toUiStatus(row: VisitorReadRow, now: Date, overstayAllowedDays: number): Status {
-  if (row.status === "checked_out" || row.status === "cancelled" || row.checkedOut) {
+  if (row.status === "cancelled") {
+    return "cancelled";
+  }
+  if (row.status === "checked_out" || row.checkedOut) {
     return "exited";
   }
   if (row.status !== "checked_in" || !row.checkedIn) {
@@ -129,9 +133,20 @@ function toUiStatus(row: VisitorReadRow, now: Date, overstayAllowedDays: number)
   return "inside";
 }
 
+function toVisitDateInput(value: string | Date | null) {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return new Date(value.getTime() + MALAYSIA_UTC_OFFSET_MS).toISOString().slice(0, 10);
+  }
+
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(value);
+  return match?.[1] ?? null;
+}
+
 function toVisit(row: VisitorReadRow, now: Date, overstayAllowedDays: number): Visit {
   const entryTime = row.checkedIn ?? row.createdAt;
   const purposeNotes = [row.remarks, row.flagReason ? `Flag: ${row.flagReason}` : null].filter(Boolean).join("\n");
+  const visitDate = toVisitDateInput(row.visitDate);
 
   return {
     id: row.id,
@@ -141,6 +156,7 @@ function toVisit(row: VisitorReadRow, now: Date, overstayAllowedDays: number): V
     visitType: toVisitType(row.typeCode),
     purpose: toPurpose(row.purpose),
     purposeNotes: purposeNotes || undefined,
+    visitDate: visitDate ?? undefined,
     hostStaffId: row.hostStaffId ?? undefined,
     hostDepartment: row.hostDepartment ?? undefined,
     flagReason: row.flagReason ?? undefined,
@@ -166,6 +182,7 @@ async function readVisitors() {
         v."checked_out" AS "checkedOut",
         vt."code" AS "typeCode",
         v."purpose",
+        v."visit_date" AS "visitDate",
         v."remarks",
         v."host_staff_id" AS "hostStaffId",
         v."host_department" AS "hostDepartment",
@@ -246,7 +263,12 @@ export async function getVisitById(id: string) {
 
   const visit = toVisit(row, now, settings.overstayAllowedDays);
   if (row.qrTokenJti) {
-    visit.qrToken = await signVisitToken(row.id, row.qrTokenJti);
+    const visitDate = toVisitDateInput(row.visitDate);
+    const expiresAt = visitDate
+      ? getPreRegistrationTokenExpiresAt(visitDate)
+      : getVisitTokenExpiresAt(row.createdAt);
+    visit.qrToken = await signVisitToken(row.id, row.qrTokenJti, row.createdAt, expiresAt);
+    visit.qrTokenExpiresAt = expiresAt.toISOString();
   }
   return visit;
 }
@@ -274,7 +296,7 @@ export async function getVisitAuditTrail(visitId: string): Promise<AuditEntry[]>
     correlationId: row.id,
     actorUserId: row.guardId ?? "system",
     actorRole: "parking",
-    actionType: row.eventType === "pass_issued" ? "CREATE" : "SCAN",
+    actionType: row.eventType === "pass_issued" ? "CREATE" : row.eventType === "pass_cancelled" ? "UPDATE" : "SCAN",
     targetDoctype: "Parking Visit",
     targetRecordId: row.visitorId ?? undefined,
     result: row.eventType === "scan_rejected" ? "FAILURE" : "SUCCESS",

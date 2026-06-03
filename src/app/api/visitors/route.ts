@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { authErrorResponse, requireParkingUser } from "@/lib/server/auth";
-import { assertVisitorTypeCode, createVisitorPass } from "@/lib/server/visitors";
+import { assertVisitDate, assertVisitorTypeCode, createVisitorPass } from "@/lib/server/visitors";
 import { PURPOSES } from "@/lib/enums";
 
 export const runtime = "nodejs";
@@ -29,6 +29,7 @@ export async function POST(request: NextRequest) {
     const vehicleNumber = String(body.vehicleNumber ?? "").trim();
     const typeCode = assertVisitorTypeCode(body.typeCode);
     const purpose = (PURPOSES as readonly string[]).includes(body.purpose) ? body.purpose : "other";
+    const visitDate = body.visitDate ? assertVisitDate(body.visitDate) : undefined;
     const remarks = String(body.remarks ?? "").trim();
     const hostStaffId = String(body.hostStaffId ?? "").trim();
     const hostDepartment = String(body.hostDepartment ?? "").trim();
@@ -59,6 +60,7 @@ export async function POST(request: NextRequest) {
       vehicleNumber,
       typeCode,
       purpose,
+      visitDate,
       remarks,
       hostStaffId,
       hostDepartment,
@@ -77,7 +79,7 @@ export async function POST(request: NextRequest) {
 
     const message = error instanceof Error ? error.message : "Unable to create visitor pass.";
     const missingDb = message.includes("DATABASE_URL") || message.includes("SUPABASE_DB_URL");
-    if (message === "Invalid visitor type.") {
+    if (message === "Invalid visitor type." || message.startsWith("Visit date")) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
     if (missingDb) {

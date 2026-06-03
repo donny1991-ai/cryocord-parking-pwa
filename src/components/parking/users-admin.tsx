@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   Mail,
@@ -24,6 +24,7 @@ import type { ParkingAdminUser } from "@/lib/server/admin-users";
 import type { ParkingUserRole } from "@/db/entities";
 
 const ROLE_OPTIONS = ["guard", "supervisor", "admin"] as const satisfies readonly ParkingUserRole[];
+const ADMIN_REQUEST_TIMEOUT_MS = 15_000;
 
 type UserFormState = {
   name: string;
@@ -41,6 +42,47 @@ const emptyForm: UserFormState = {
   active: true,
 };
 
+async function fetchAdminJson(path: string, init: RequestInit = {}) {
+  const controller = new AbortController();
+  const externalSignal = init.signal;
+  const abortFromExternal = () => controller.abort();
+  externalSignal?.addEventListener("abort", abortFromExternal, { once: true });
+
+  if (externalSignal?.aborted) {
+    controller.abort();
+  }
+
+  let timeout: number | undefined;
+  const timeoutError = new Error("Request timed out. Please check the server connection and try again.");
+  const requestTimeout = new Promise<never>((_, reject) => {
+    timeout = window.setTimeout(() => {
+      controller.abort();
+      reject(timeoutError);
+    }, ADMIN_REQUEST_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([
+      (async () => {
+        const response = await fetch(path, { ...init, signal: controller.signal });
+        const payload = await response.json().catch(() => ({}));
+        return { response, payload };
+      })(),
+      requestTimeout,
+    ]);
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    if (timeout !== undefined) {
+      window.clearTimeout(timeout);
+    }
+    externalSignal?.removeEventListener("abort", abortFromExternal);
+  }
+}
+
 export function UsersAdmin({ users, actorId }: { users: ParkingAdminUser[]; actorId: string }) {
   const [list, setList] = useState(users);
   const [query, setQuery] = useState("");
@@ -50,6 +92,21 @@ export function UsersAdmin({ users, actorId }: { users: ParkingAdminUser[]; acto
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const activeRequestRef = useRef<{ id: number; controller: AbortController } | null>(null);
+  const requestSeqRef = useRef(0);
+
+  useEffect(() => {
+    if (!busyId) return;
+
+    const timeout = window.setTimeout(() => {
+      activeRequestRef.current?.controller.abort();
+      activeRequestRef.current = null;
+      setBusyId(null);
+      setError("Request timed out. Please check the server connection and try again.");
+    }, ADMIN_REQUEST_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timeout);
+  }, [busyId]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -105,17 +162,22 @@ export function UsersAdmin({ users, actorId }: { users: ParkingAdminUser[]; acto
 
     const endpoint = mode === "edit" && editingId ? `/api/admin/users/${editingId}` : "/api/admin/users";
     const method = mode === "edit" ? "PUT" : "POST";
+    const requestId = requestSeqRef.current + 1;
+    const controller = new AbortController();
+    requestSeqRef.current = requestId;
+    activeRequestRef.current = { id: requestId, controller };
 
     try {
-      const response = await fetch(endpoint, {
+      const { response, payload } = await fetchAdminJson(endpoint, {
         method,
+        signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
           phone: form.phone.trim() || null,
         }),
       });
-      const payload = await response.json();
+      if (activeRequestRef.current?.id !== requestId) return;
       if (!response.ok) {
         throw new Error(payload.error ?? "Unable to save user.");
       }
@@ -130,9 +192,13 @@ export function UsersAdmin({ users, actorId }: { users: ParkingAdminUser[]; acto
       setNotice(mode === "edit" ? "User updated." : "User created.");
       closeForm();
     } catch (saveError) {
+      if (activeRequestRef.current?.id !== requestId) return;
       setError(saveError instanceof Error ? saveError.message : "Unable to save user.");
     } finally {
-      setBusyId(null);
+      if (activeRequestRef.current?.id === requestId) {
+        activeRequestRef.current = null;
+        setBusyId(null);
+      }
     }
   }
 
@@ -144,10 +210,17 @@ export function UsersAdmin({ users, actorId }: { users: ParkingAdminUser[]; acto
     setBusyId(user.id);
     setError(null);
     setNotice(null);
+    const requestId = requestSeqRef.current + 1;
+    const controller = new AbortController();
+    requestSeqRef.current = requestId;
+    activeRequestRef.current = { id: requestId, controller };
 
     try {
-      const response = await fetch(`/api/admin/users/${user.id}`, { method: "DELETE" });
-      const payload = await response.json();
+      const { response, payload } = await fetchAdminJson(`/api/admin/users/${user.id}`, {
+        method: "DELETE",
+        signal: controller.signal,
+      });
+      if (activeRequestRef.current?.id !== requestId) return;
       if (!response.ok) {
         throw new Error(payload.error ?? "Unable to deactivate user.");
       }
@@ -155,9 +228,13 @@ export function UsersAdmin({ users, actorId }: { users: ParkingAdminUser[]; acto
       setList((current) => current.map((item) => (item.id === user.id ? payload.user : item)));
       setNotice("User deactivated.");
     } catch (deleteError) {
+      if (activeRequestRef.current?.id !== requestId) return;
       setError(deleteError instanceof Error ? deleteError.message : "Unable to deactivate user.");
     } finally {
-      setBusyId(null);
+      if (activeRequestRef.current?.id === requestId) {
+        activeRequestRef.current = null;
+        setBusyId(null);
+      }
     }
   }
 
@@ -205,7 +282,7 @@ export function UsersAdmin({ users, actorId }: { users: ParkingAdminUser[]; acto
         <UserForm
           form={form}
           mode={mode}
-          busy={busyId === "new" || busyId === editingId}
+          busy={mode === "create" ? busyId === "new" : busyId === editingId}
           onChange={setForm}
           onClose={closeForm}
           onSubmit={submit}
