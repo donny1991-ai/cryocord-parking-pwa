@@ -4,10 +4,30 @@ import { freshParkingDatabase } from "./parking-fresh";
 import { seedStarterAdmin } from "./seeders/auth-user.seeder";
 import { seedDemoJourney } from "./seeders/demo-journey.seeder";
 
+function getTargetDatabaseUrl() {
+  return process.env.DATABASE_URL ?? process.env.SUPABASE_DB_URL ?? "";
+}
+
+function isLocalDatabaseUrl(databaseUrl: string) {
+  if (!databaseUrl) {
+    return false;
+  }
+
+  try {
+    const hostname = new URL(databaseUrl).hostname.toLowerCase();
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "host.docker.internal";
+  } catch {
+    return false;
+  }
+}
+
 function assertFreshIsAllowed() {
-  if (process.env.NODE_ENV === "production" && process.env.CONFIRM_PARKING_MIGRATE_FRESH !== "true") {
+  const targetDatabaseUrl = getTargetDatabaseUrl();
+  const isRemoteDatabase = !isLocalDatabaseUrl(targetDatabaseUrl);
+
+  if ((process.env.NODE_ENV === "production" || isRemoteDatabase) && process.env.CONFIRM_PARKING_MIGRATE_FRESH !== "true") {
     throw new Error(
-      "Refusing to run parking migrate:fresh in production. " +
+      "Refusing to run parking migrate:fresh against a production or remote database. " +
         "Set CONFIRM_PARKING_MIGRATE_FRESH=true if this is intentional.",
     );
   }
@@ -24,7 +44,7 @@ async function main() {
   const shouldSeedDemo = process.argv.includes("--demo");
   const result = await freshParkingDatabase(AppDataSource);
 
-  console.log(`Deleted ${result.deletedAuthUsers} parking-linked auth user(s).`);
+  console.log("Preserved Supabase auth.users; no auth users were deleted.");
   console.log(`Ran ${result.migrationsRun} migration(s).`);
 
   if (shouldSeed) {

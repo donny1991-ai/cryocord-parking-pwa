@@ -31,10 +31,7 @@ export default defineConfig({
           globals: true,
           setupFiles: ["./vitest.integration.setup.ts"],
           include: ["src/**/*.integration.test.{ts,tsx}"],
-          poolOptions: {
-            threads: { singleThread: true },
-            forks: { singleFork: true },
-          },
+          fileParallelism: false,
           hookTimeout: 30_000,
           testTimeout: 30_000,
         },

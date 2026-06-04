@@ -198,11 +198,13 @@ CONFIRM_PARKING_MIGRATE_FRESH=true npm run db:migrate:fresh:seed
 CONFIRM_PARKING_MIGRATE_FRESH=true npm run db:migrate:fresh:demo
 ```
 
-This deletes only Supabase `auth.users` rows linked by `parking.users`, drops the
-`parking` schema and TypeORM migration history, then reruns migrations. In production,
-set `CONFIRM_PARKING_MIGRATE_FRESH=true` to acknowledge the destructive operation.
-The `:demo` variant also seeds an admin, a guard, and representative live, overstay,
-flagged, and exited visitor records for walkthroughs.
+This preserves Supabase `auth.users`, drops only the `parking` schema and TypeORM
+migration history, then reruns migrations. In production or against a remote database,
+set `CONFIRM_PARKING_MIGRATE_FRESH=true` to acknowledge the destructive parking-schema
+reset. The `:demo` variant also seeds an admin, a guard, and representative live,
+overstay, flagged, and exited visitor records for walkthroughs. Seeders reuse an
+existing `auth.users` row by email and create one only when the email does not already
+exist.
 
 ## Database
 

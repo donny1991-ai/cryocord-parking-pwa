@@ -25,53 +25,47 @@ export async function seedAuthParkingUser(
     `SELECT "id" FROM "auth"."users" WHERE lower("email") = $1 LIMIT 1`,
     [email],
   );
-  const id = input.id ?? existingAuthUsers[0]?.id ?? randomUUID();
+  const existingAuthUserId = existingAuthUsers[0]?.id;
+  const id = input.id ?? existingAuthUserId ?? randomUUID();
   const active = input.active ?? true;
   const phone = input.phone ?? null;
   const isSuperAdmin = input.isSuperAdmin ?? input.role === "admin";
 
-  await manager.query(
-    `
-      INSERT INTO "auth"."users" (
-        "id",
-        "aud",
-        "role",
-        "email",
-        "email_confirmed_at",
-        "raw_app_meta_data",
-        "raw_user_meta_data",
-        "is_super_admin",
-        "is_sso_user",
-        "is_anonymous",
-        "created_at",
-        "updated_at"
-      )
-      VALUES (
-        $1,
-        'authenticated',
-        'authenticated',
-        $2,
-        now(),
-        '{"provider":"email","providers":["email"]}'::jsonb,
-        jsonb_build_object('name', $3::text),
-        $4::boolean,
-        false,
-        false,
-        now(),
-        now()
-      )
-      ON CONFLICT ("id") DO UPDATE SET
-        "aud" = EXCLUDED."aud",
-        "role" = EXCLUDED."role",
-        "email" = EXCLUDED."email",
-        "email_confirmed_at" = COALESCE("auth"."users"."email_confirmed_at", EXCLUDED."email_confirmed_at"),
-        "raw_app_meta_data" = EXCLUDED."raw_app_meta_data",
-        "raw_user_meta_data" = EXCLUDED."raw_user_meta_data",
-        "is_super_admin" = EXCLUDED."is_super_admin",
-        "updated_at" = now()
-    `,
-    [id, email, input.name, isSuperAdmin],
-  );
+  if (!existingAuthUserId) {
+    await manager.query(
+      `
+        INSERT INTO "auth"."users" (
+          "id",
+          "aud",
+          "role",
+          "email",
+          "email_confirmed_at",
+          "raw_app_meta_data",
+          "raw_user_meta_data",
+          "is_super_admin",
+          "is_sso_user",
+          "is_anonymous",
+          "created_at",
+          "updated_at"
+        )
+        VALUES (
+          $1,
+          'authenticated',
+          'authenticated',
+          $2,
+          now(),
+          '{"provider":"email","providers":["email"]}'::jsonb,
+          jsonb_build_object('name', $3::text),
+          $4::boolean,
+          false,
+          false,
+          now(),
+          now()
+        )
+      `,
+      [id, email, input.name, isSuperAdmin],
+    );
+  }
 
   await manager.query(
     `
