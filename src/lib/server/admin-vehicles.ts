@@ -1,0 +1,145 @@
+import "server-only";
+import { VehicleSchema, type VehicleEntity } from "@/db/entities";
+import { getParkingDataSource } from "@/db/client";
+import { AuthError } from "@/lib/server/auth";
+import { OWNER_TYPES, type OwnerType } from "@/lib/enums";
+import { normalisePlate } from "@/lib/utils";
+import type { Vehicle } from "@/lib/types";
+
+export interface CreateVehicleInput {
+  plate?: unknown;
+  ownerName?: unknown;
+  ownerContact?: unknown;
+  ownerEmail?: unknown;
+  ownerType?: unknown;
+  staffId?: unknown;
+  notes?: unknown;
+  blacklisted?: unknown;
+}
+
+export interface UpdateVehicleInput extends CreateVehicleInput {
+  blacklisted?: unknown;
+}
+
+function assertText(value: unknown, label: string, max: number, required = false) {
+  if (value === null || value === undefined) {
+    if (required) throw new AuthError(`${label} is required.`, 400);
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new AuthError(`${label} must be text.`, 400);
+  }
+  const text = value.trim();
+  if (!text) {
+    if (required) throw new AuthError(`${label} is required.`, 400);
+    return null;
+  }
+  if (text.length > max) {
+    throw new AuthError(`${label} must be ${max} characters or fewer.`, 400);
+  }
+  return text;
+}
+
+function assertOwnerType(value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  if (typeof value === "string" && (OWNER_TYPES as readonly string[]).includes(value)) {
+    return value as OwnerType;
+  }
+  throw new AuthError("Owner type is invalid.", 400);
+}
+
+function assertBoolean(value: unknown, fallback = false) {
+  if (value === undefined) return fallback;
+  if (typeof value !== "boolean") {
+    throw new AuthError("Blacklisted must be true or false.", 400);
+  }
+  return value;
+}
+
+function assertUuid(value: string) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+    throw new AuthError("Vehicle id is invalid.", 400);
+  }
+  return value;
+}
+
+function toDto(vehicle: VehicleEntity): Vehicle {
+  return {
+    id: vehicle.id,
+    plate: vehicle.plate,
+    plateNormalised: vehicle.plateNormalised,
+    ownerName: vehicle.ownerName ?? undefined,
+    ownerContact: vehicle.ownerContact ?? undefined,
+    ownerEmail: vehicle.ownerEmail ?? undefined,
+    ownerType: vehicle.ownerType ? (vehicle.ownerType as OwnerType) : undefined,
+    staffId: vehicle.staffId ?? undefined,
+    notes: vehicle.notes ?? undefined,
+    blacklisted: vehicle.blacklisted,
+    createdAt: vehicle.createdAt.toISOString(),
+    updatedAt: vehicle.updatedAt.toISOString(),
+  };
+}
+
+export async function createParkingVehicle(input: CreateVehicleInput): Promise<Vehicle> {
+  const plate = assertText(input.plate, "Plate", 32, true) ?? "";
+  const plateNormalised = normalisePlate(plate);
+  if (plateNormalised.length < 3) {
+    throw new AuthError("Plate must contain at least 3 letters or numbers.", 400);
+  }
+
+  const vehicle = {
+    plate: plate.toUpperCase(),
+    plateNormalised,
+    ownerName: assertText(input.ownerName, "Owner name", 160),
+    ownerContact: assertText(input.ownerContact, "Owner contact", 40),
+    ownerEmail: assertText(input.ownerEmail, "Owner email", 320),
+    ownerType: assertOwnerType(input.ownerType),
+    staffId: assertText(input.staffId, "Staff ID", 80),
+    notes: assertText(input.notes, "Notes", 2000),
+    blacklisted: assertBoolean(input.blacklisted),
+  };
+
+  const ds = await getParkingDataSource();
+  try {
+    const saved = await ds.manager.save(VehicleSchema, ds.manager.create(VehicleSchema, vehicle));
+    return toDto(saved);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("duplicate")) {
+      throw new AuthError("A vehicle with this plate already exists.", 409);
+    }
+    throw error;
+  }
+}
+
+export async function updateParkingVehicle(id: string, input: UpdateVehicleInput): Promise<Vehicle> {
+  id = assertUuid(id);
+  const ds = await getParkingDataSource();
+  const existing = await ds.manager.findOneBy(VehicleSchema, { id });
+  if (!existing) {
+    throw new AuthError("Vehicle was not found.", 404);
+  }
+
+  const patch: Partial<VehicleEntity> = {};
+
+  if (input.plate !== undefined) {
+    const plate = assertText(input.plate, "Plate", 32, true) ?? "";
+    const plateNormalised = normalisePlate(plate);
+    if (plateNormalised.length < 3) {
+      throw new AuthError("Plate must contain at least 3 letters or numbers.", 400);
+    }
+    patch.plate = plate.toUpperCase();
+    patch.plateNormalised = plateNormalised;
+  }
+  if (input.ownerName !== undefined) patch.ownerName = assertText(input.ownerName, "Owner name", 160);
+  if (input.ownerContact !== undefined) patch.ownerContact = assertText(input.ownerContact, "Owner contact", 40);
+  if (input.ownerEmail !== undefined) patch.ownerEmail = assertText(input.ownerEmail, "Owner email", 320);
+  if (input.ownerType !== undefined) patch.ownerType = assertOwnerType(input.ownerType);
+  if (input.staffId !== undefined) patch.staffId = assertText(input.staffId, "Staff ID", 80);
+  if (input.notes !== undefined) patch.notes = assertText(input.notes, "Notes", 2000);
+  if (input.blacklisted !== undefined) patch.blacklisted = assertBoolean(input.blacklisted, existing.blacklisted);
+
+  await ds.manager.update(VehicleSchema, { id }, patch);
+  return toDto(await ds.manager.findOneByOrFail(VehicleSchema, { id }));
+}

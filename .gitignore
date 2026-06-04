@@ -22,6 +22,7 @@ next-env.d.ts
 *.pem
 
 # local tooling / editor
+.azure/
 .claude/
 .vscode/
 .idea/
@@ -33,7 +34,11 @@ yarn-error.log*
 
 # env — never commit secrets (Supabase keys, QR signing key live in Key Vault)
 .env
+.env.test
 .env*.local
 
 # typescript
 *.tsbuildinfo
+
+# tests
+/coverage/

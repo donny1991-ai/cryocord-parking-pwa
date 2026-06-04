@@ -17,17 +17,19 @@ export function QrPass({
   visitorName,
   visitType,
   validUntil,
+  heading = "Keep for exit scan",
 }: {
   token: string;
   plate: string;
   visitorName: string;
   visitType: VisitType;
   validUntil: string;
+  heading?: string;
 }) {
   return (
     <GlassCard variant="strong" padding="lg" className="mx-auto max-w-sm text-center">
       <p className="text-xs font-bold uppercase tracking-widest text-brand">CryoCord Visitor Pass</p>
-      <h2 className="mt-1 text-lg font-bold text-ink">Show this to the visitor</h2>
+      <h2 className="mt-1 text-lg font-bold text-ink">{heading}</h2>
 
       <div className="mx-auto mt-4 w-fit rounded-3xl bg-white p-5 shadow-lift ring-1 ring-black/5">
         <QRCodeSVG

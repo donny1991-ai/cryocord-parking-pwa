@@ -1,21 +1,23 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Activity, CarFront, Clock, Download, Flag, ChevronRight, ShieldCheck } from "lucide-react";
+import { Activity, CarFront, Clock, Download, Flag, ChevronRight, ShieldCheck, UsersRound, Settings } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { GlassCard } from "@/components/ui/glass-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { VisitRow } from "@/components/parking/visit-row";
 import { OccupancyChart } from "@/components/parking/occupancy-chart";
-import { data } from "@/lib/data";
-import { MOCK_NOW } from "@/lib/mock";
+import { getParkingSnapshot } from "@/lib/server/parking-data";
+import { requireParkingPageUser } from "@/lib/server/page-auth";
 
 export const metadata: Metadata = { title: "Admin" };
 
-export default function AdminPage() {
-  const series = data.occupancySeries();
+export default async function AdminPage() {
+  await requireParkingPageUser(["admin"]);
+  const snapshot = await getParkingSnapshot();
+  const series = snapshot.occupancySeries;
   const peak = Math.max(...series.map((s) => s.inside));
-  const alerts = data.allVisits().filter((v) => v.status === "overstayed" || v.status === "flagged");
-  const c = data.counts();
+  const alerts = snapshot.allVisits.filter((v) => v.status === "overstayed" || v.status === "flagged");
+  const c = snapshot.counts;
 
   return (
     <div className="space-y-5">
@@ -32,7 +34,7 @@ export default function AdminPage() {
           <Activity className="h-4 w-4 text-brand" />
           <h2 className="text-sm font-bold uppercase tracking-wide text-ink-soft">Occupancy — today</h2>
         </div>
-        <OccupancyChart />
+        <OccupancyChart series={series} />
       </GlassCard>
 
       <section className="space-y-2.5">
@@ -40,34 +42,60 @@ export default function AdminPage() {
           Alerts ({alerts.length})
         </h2>
         {alerts.map((v) => (
-          <VisitRow key={v.id} visit={v} now={MOCK_NOW} />
+          <VisitRow key={v.id} visit={v} now={snapshot.now} />
         ))}
         {alerts.length === 0 && (
           <p className="py-6 text-center text-sm text-ink-faint">No overstays or flags right now.</p>
         )}
       </section>
 
-      <section className="space-y-2.5">
+      <section className="space-y-3">
         <h2 className="px-1 text-sm font-bold uppercase tracking-wide text-ink-faint">Manage</h2>
-        <Link href="/parking/vehicles">
-          <GlassCard interactive padding="md" className="flex items-center gap-3">
+        <div className="grid gap-3">
+          <Link href="/parking/vehicles" className="block">
+            <GlassCard interactive padding="md" className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10">
+                <CarFront className="h-5 w-5 text-brand" />
+              </span>
+              <span className="flex-1 font-semibold text-ink">Vehicle registry & blacklist</span>
+              <ChevronRight className="h-4 w-4 text-ink-faint" />
+            </GlassCard>
+          </Link>
+          <Link href="/parking/users" className="block">
+            <GlassCard interactive padding="md" className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10">
+                <UsersRound className="h-5 w-5 text-brand" />
+              </span>
+              <div className="flex-1">
+                <p className="font-semibold text-ink">User management</p>
+                <p className="text-xs text-ink-faint">Create guards, assign roles, and disable access.</p>
+              </div>
+              <ChevronRight className="h-4 w-4 text-ink-faint" />
+            </GlassCard>
+          </Link>
+          <Link href="/parking/settings" className="block">
+            <GlassCard interactive padding="md" className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10">
+                <Settings className="h-5 w-5 text-brand" />
+              </span>
+              <div className="flex-1">
+                <p className="font-semibold text-ink">Configuration</p>
+                <p className="text-xs text-ink-faint">Token expiry and overstay thresholds.</p>
+              </div>
+              <ChevronRight className="h-4 w-4 text-ink-faint" />
+            </GlassCard>
+          </Link>
+          <GlassCard padding="md" className="flex items-center gap-3">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10">
-              <CarFront className="h-5 w-5 text-brand" />
+              <Download className="h-5 w-5 text-brand" />
             </span>
-            <span className="flex-1 font-semibold text-ink">Vehicle registry & blacklist</span>
+            <div className="flex-1">
+              <p className="font-semibold text-ink">Export visit log</p>
+              <p className="text-xs text-ink-faint">Every export is audit-logged &amp; DPO-gated.</p>
+            </div>
             <ChevronRight className="h-4 w-4 text-ink-faint" />
           </GlassCard>
-        </Link>
-        <GlassCard padding="md" className="flex items-center gap-3">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/10">
-            <Download className="h-5 w-5 text-brand" />
-          </span>
-          <div className="flex-1">
-            <p className="font-semibold text-ink">Export visit log</p>
-            <p className="text-xs text-ink-faint">Every export is audit-logged &amp; DPO-gated.</p>
-          </div>
-          <ChevronRight className="h-4 w-4 text-ink-faint" />
-        </GlassCard>
+        </div>
       </section>
 
       <GlassCard variant="bare" padding="sm" className="flex items-start gap-2.5">

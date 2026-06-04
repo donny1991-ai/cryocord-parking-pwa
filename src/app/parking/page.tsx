@@ -1,21 +1,38 @@
 import Link from "next/link";
-import { LogIn, TriangleAlert, Flag, ScanLine, ShieldCheck, ChevronRight } from "lucide-react";
-import { data } from "@/lib/data";
-import { MOCK_NOW } from "@/lib/mock";
+import {
+  CalendarPlus,
+  ChevronRight,
+  DoorOpen,
+  Flag,
+  LogIn,
+  QrCode,
+  ScanLine,
+  ShieldCheck,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react";
+import { getParkingSnapshot } from "@/lib/server/parking-data";
 import { GlassCard } from "@/components/ui/glass-card";
 import { StatCard } from "@/components/ui/stat-card";
 import { OccupancyHero } from "@/components/parking/occupancy-hero";
 import { VisitRow } from "@/components/parking/visit-row";
 
-export default function DashboardPage() {
-  const c = data.counts();
-  const inside = data.insideVisits();
-  const series = data.occupancySeries().map((s) => s.inside);
+export default async function DashboardPage() {
+  const snapshot = await getParkingSnapshot();
+  const c = snapshot.counts;
+  const inside = snapshot.insideVisits;
+  const series = snapshot.occupancySeries.map((s) => s.inside);
+  const dashboardDate = snapshot.now.toLocaleDateString("en-MY", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
 
   return (
     <div className="space-y-5">
       <div>
-        <p className="text-sm text-ink-faint">Tuesday · 26 May 2026</p>
+        <p className="text-sm text-ink-faint">{dashboardDate}</p>
         <h1 className="text-[26px] font-bold leading-tight tracking-tight text-ink">Live car park</h1>
       </div>
 
@@ -44,26 +61,37 @@ export default function DashboardPage() {
           href="/parking/entry"
           icon={ScanLine}
           title="New Entry"
-          subtitle="Capture · issue pass"
+          subtitle="Plate scan · check in"
           primary
         />
         <ActionTile
+          href="/parking/pre-register"
+          icon={CalendarPlus}
+          title="Pre-register"
+          subtitle="Create · send QR"
+        />
+        <ActionTile
+          href="/parking/arrival"
+          icon={QrCode}
+          title="Arrival Scan"
+          subtitle="QR · check in"
+        />
+        <ActionTile
           href="/parking/exit"
-          icon={LogIn}
-          iconClass="rotate-180"
+          icon={DoorOpen}
           title="Log Exit"
-          subtitle="Scan · confirm out"
+          subtitle="QR/plate · check out"
         />
       </div>
 
       {/* Flagged callout */}
       {c.flagged > 0 && (
-        <Link href="/parking/admin">
+        <Link href="/parking/admin" className="block">
           <GlassCard
             variant="bare"
             interactive
             padding="sm"
-            className="flex items-center gap-3 border-brand/30 bg-brand-tint/70"
+            className="flex min-h-[4.75rem] items-center gap-3 border-brand/30 bg-brand-tint/70"
           >
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand/15">
               <Flag className="h-5 w-5 text-brand" />
@@ -89,7 +117,7 @@ export default function DashboardPage() {
         </div>
         <div className="stagger-children space-y-2.5">
           {inside.map((v) => (
-            <VisitRow key={v.id} visit={v} now={MOCK_NOW} />
+            <VisitRow key={v.id} visit={v} now={snapshot.now} />
           ))}
         </div>
       </section>
@@ -115,7 +143,7 @@ function ActionTile({
   primary = false,
 }: {
   href: string;
-  icon: typeof ScanLine;
+  icon: LucideIcon;
   iconClass?: string;
   title: string;
   subtitle: string;

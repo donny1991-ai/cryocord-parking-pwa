@@ -15,6 +15,44 @@ import {
 
 type Status = "starting" | "live" | "reading" | "blocked";
 
+const PLATE_FRAME = {
+  x: 0.08,
+  y: 0.32,
+  width: 0.84,
+  height: 0.34,
+};
+
+function preparePlateImage(video: HTMLVideoElement, canvas: HTMLCanvasElement) {
+  const sourceWidth = video.videoWidth;
+  const sourceHeight = video.videoHeight;
+  const cropX = Math.round(sourceWidth * PLATE_FRAME.x);
+  const cropY = Math.round(sourceHeight * PLATE_FRAME.y);
+  const cropWidth = Math.round(sourceWidth * PLATE_FRAME.width);
+  const cropHeight = Math.round(sourceHeight * PLATE_FRAME.height);
+  const scale = 2;
+
+  canvas.width = cropWidth * scale;
+  canvas.height = cropHeight * scale;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return canvas;
+
+  context.imageSmoothingEnabled = true;
+  context.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
+
+  const image = context.getImageData(0, 0, canvas.width, canvas.height);
+  const data = image.data;
+  for (let index = 0; index < data.length; index += 4) {
+    const luminance = 0.299 * data[index] + 0.587 * data[index + 1] + 0.114 * data[index + 2];
+    const contrasted = Math.max(0, Math.min(255, (luminance - 128) * 1.8 + 128));
+    data[index] = contrasted;
+    data[index + 1] = contrasted;
+    data[index + 2] = contrasted;
+  }
+  context.putImageData(image, 0, 0);
+
+  return canvas;
+}
+
 /**
  * Plate capture: live camera + on-device OCR (lib/ocr → Tesseract.js, ADR D3),
  * with a manual-entry fallback that is always one tap away. No image leaves the
@@ -64,7 +102,6 @@ export function PlateCapture({ onPlate }: { onPlate: (plate: string) => void }) 
       }
     }
 
-    setStatus("starting");
     start();
     return () => {
       cancelled = true;
@@ -77,15 +114,14 @@ export function PlateCapture({ onPlate }: { onPlate: (plate: string) => void }) 
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext("2d")?.drawImage(video, 0, 0);
     setStatus("reading");
     setNotice(null);
     try {
-      const candidates = await recognisePlate(canvas);
+      const candidates = await recognisePlate(preparePlateImage(video, canvas));
       if (candidates.length > 0) {
-        onPlate(candidates[0].plate);
+        setManual(candidates[0].plate);
+        setNotice("Review the detected plate, edit if needed, then tap Use.");
+        setStatus("live");
       } else {
         setNotice("Couldn't read a plate. Reframe and capture again, or type it below.");
         setStatus("live");
@@ -121,7 +157,7 @@ export function PlateCapture({ onPlate }: { onPlate: (plate: string) => void }) 
           <>
             <video ref={videoRef} playsInline muted className="h-full w-full object-cover" />
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="h-[28%] w-[78%] rounded-2xl border-2 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
+              <div className="h-[34%] w-[84%] rounded-2xl border-2 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
             </div>
             <div className="absolute left-1/2 top-3 -translate-x-1/2 rounded-full bg-black/45 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
               {status === "reading"

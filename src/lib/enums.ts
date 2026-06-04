@@ -5,13 +5,10 @@
  */
 
 export const VISIT_TYPES = [
-  "visitor",
+  "guest",
   "vendor",
-  "courier",
-  "patient",
+  "client",
   "staff",
-  "contractor",
-  "vip",
 ] as const;
 export type VisitType = (typeof VISIT_TYPES)[number];
 
@@ -26,7 +23,7 @@ export const PURPOSES = [
 ] as const;
 export type Purpose = (typeof PURPOSES)[number];
 
-export const STATUSES = ["inside", "exited", "overstayed", "flagged"] as const;
+export const STATUSES = ["pending", "inside", "exited", "overstayed", "flagged", "cancelled"] as const;
 export type Status = (typeof STATUSES)[number];
 
 export const OWNER_TYPES = [

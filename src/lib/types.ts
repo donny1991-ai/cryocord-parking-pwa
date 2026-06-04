@@ -27,14 +27,17 @@ export interface Visit {
   visitType: VisitType;
   purpose: Purpose;
   purposeNotes?: string;
+  visitDate?: string;
   hostStaffId?: string;
   hostDepartment?: string;
+  flagReason?: string;
   entryTime: string;
   entryGuardId: string;
   entryPhotoUrl?: string; // Azure Blob (MY West)
   exitTime?: string;
   exitGuardId?: string;
   qrToken?: string; // opaque signed reference, no PII (see lib/qr.ts)
+  qrTokenExpiresAt?: string;
   status: Status;
   createdAt: string;
 }

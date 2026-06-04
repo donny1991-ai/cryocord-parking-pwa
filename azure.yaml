@@ -1,0 +1,13 @@
+name: cryocord-parking-pwa
+metadata:
+  template: cryocord-parking-pwa@0.1.0
+services:
+  web:
+    project: .
+    language: docker
+    host: containerapp
+    resourceName: ${AZURE_CONTAINER_APP_NAME}
+    docker:
+      path: ./Dockerfile
+      context: .
+      remoteBuild: true

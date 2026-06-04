@@ -4,16 +4,16 @@ import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { VisitRow } from "./visit-row";
-import { data } from "@/lib/data";
-import { MOCK_NOW } from "@/lib/mock";
 import { STATUSES } from "@/lib/enums";
 import { statusLabel } from "@/lib/labels";
 import { cn, normalisePlate } from "@/lib/utils";
+import type { Visit } from "@/lib/types";
 
 type Filter = "all" | (typeof STATUSES)[number];
 
-export function VisitsList() {
-  const all = data.allVisits();
+export function VisitsList({ visits, nowIso }: { visits: Visit[]; nowIso: string }) {
+  const all = visits;
+  const now = useMemo(() => new Date(nowIso), [nowIso]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
 
@@ -61,7 +61,7 @@ export function VisitsList() {
 
       <div className="space-y-2.5">
         {filtered.map((v) => (
-          <VisitRow key={v.id} visit={v} now={MOCK_NOW} />
+          <VisitRow key={v.id} visit={v} now={now} showQuickRegister />
         ))}
         {filtered.length === 0 && (
           <p className="py-10 text-center text-sm text-ink-faint">No visits match.</p>

@@ -4,9 +4,9 @@ Guard-facing Progressive Web App for **CryoCord HQ car park access control** —
 capture, QR visitor passes, and live occupancy. It is the `parking` module of the
 CryoCord Workplace OS / ICS.
 
-> **Status:** Front-end scaffold with deterministic **mock data**. All screens and
-> client features work; the data layer and external integrations are stubbed behind
-> clean seams (see [What's wired vs. stubbed](#whats-wired-vs-stubbed)).
+> **Status:** DB-backed guard console with email OTP login, TypeORM migrations,
+> parking-only fresh rebuild tooling, starter/demo seeders, QR visitor passes,
+> and real check-in/check-out mutations.
 
 ---
 
@@ -21,7 +21,8 @@ CryoCord Workplace OS / ICS.
 | QR | `qrcode.react` (generate) + `@yudiel/react-qr-scanner` (scan) |
 | Token | `jose` (HS256, opaque visit-id reference) |
 | Charts | `recharts` |
-| Data (planned) | Self-hosted Supabase (Azure Malaysia West) |
+| Data | Supabase/Postgres + TypeORM migrations |
+| Container | Docker standalone Next.js image; Azure Container Apps compatible |
 
 Brand tokens: primary red `#C8102E`, hover `#CC0000`, canvas `#F2F2F2`, font Arial.
 
@@ -37,6 +38,9 @@ npm run dev          # http://localhost:3000  (redirects to /parking)
 npm run dev:https    # https on the LAN — required for camera testing on a phone
 npm run build        # production build (also emits the PWA service worker)
 npm run typecheck    # tsc --noEmit
+npm run test         # Vitest unit tests
+npm run test:coverage
+npm run test:integration # requires .env.test with an isolated test DB
 npm run lint
 ```
 
@@ -44,6 +48,214 @@ npm run lint
 - **Camera** (entry OCR, exit QR scan) needs a *secure context*: it works on
   `http://localhost` and over HTTPS. On a phone via `http://<lan-ip>:3000` the camera
   is blocked by the browser — use `npm run dev:https` and open the `https://` URL.
+
+## Docker
+
+```bash
+docker compose build
+docker compose up
+
+# Local Docker dev server with Next.js Fast Refresh / hot reload.
+docker compose --profile dev up app-dev
+
+# Run migrations against the local Supabase dev database.
+docker compose --profile tools run --rm migrate
+```
+
+Local database targets:
+
+| File | Supabase DB container | Host URL |
+|---|---|---|
+| `.env` | `supabase_db_Cryocord-Policy-Hub-and-HR` | `postgresql://postgres:<password>@127.0.0.1:54322/postgres` |
+| `.env.test` | `supabase_db_cryocord-hr-test` | `postgresql://postgres:<password>@127.0.0.1:55322/postgres` |
+
+Both URLs connect to Supabase's default `postgres` database. The project data is
+separated by schema: domain tables are created as `parking.visitors`,
+`parking.visitor_types`, and `parking.visitor_scan_events`.
+
+When running this app itself in Docker Compose, `docker-compose.yml` uses
+`host.docker.internal:54322` so the app container can reach the
+`Cryocord-Policy-Hub-and-HR` Supabase database on the host.
+
+The production image uses Next.js standalone output and listens on `PORT=3000` with
+`HOSTNAME=0.0.0.0`, which is the shape Azure Container Apps expects. Configure the
+Container App health probe at `/api/health`.
+
+## Azure Container Apps
+
+This repo includes an Azure Developer CLI (`azd`) + Bicep scaffold:
+
+- `azure.yaml` builds the existing Dockerfile and deploys the `web` service to
+  Azure Container Apps.
+- `infra/main.bicep` creates a dedicated project resource group and app resources.
+- The shared Supabase/Postgres database remains external and is passed through
+  `DATABASE_URL`, so it can stay in its existing resource group and schema model.
+
+Recommended production environment setup:
+
+```bash
+azd env new prod
+azd env set AZURE_LOCATION southeastasia
+
+# Use the subscription id for "Azure subscription 1".
+azd env set AZURE_SUBSCRIPTION_ID <subscription-id>
+azd env set AZURE_CONTAINER_REGISTRY_NAME acrcryocordparkingprod
+
+azd env set DATABASE_URL '<supabase-postgres-connection-string>'
+azd env set DATABASE_SSL true
+azd env set PARKING_QR_KEY_ID prod
+azd env set PARKING_QR_SIGNING_KEY '<qr-signing-key>'
+azd env set SUPABASE_JWT_SECRET '<supabase-jwt-secret>'
+azd env set SMTP_PASS '<smtp-password>'
+```
+
+`PARKING_QR_SIGNING_KEY`, `SUPABASE_JWT_SECRET`, and `SMTP_PASS` are optional for
+initial provisioning. If they are not set in `azd`, Bicep omits those Container App
+secret/env references so you can add them manually in Azure Container Apps after the
+resource exists. They are still required before the production app can handle QR,
+auth, and OTP email flows.
+
+Optional overrides:
+
+```bash
+azd env set NEXT_PUBLIC_APP_URL https://parking.example.com
+azd env set AUTH_OTP_SECRET '<dedicated-otp-secret>'
+azd env set SMTP_HOST mail.cryocord.com.my
+azd env set SMTP_PORT 465
+azd env set SMTP_USER aiprojects@cryocord.com.my
+azd env set SMTP_FROM aiprojects@cryocord.com.my
+```
+
+Provision and deploy:
+
+```bash
+azd provision
+azd deploy web
+```
+
+For a later hardening pass, prefer Key Vault-backed Container Apps secrets with the
+app's managed identity instead of storing production secret values directly in the
+Container App configuration.
+
+Run migrations as a separate release step before promoting the new app revision:
+
+```bash
+npm run db:migration:run
+```
+
+Runtime variable reference:
+
+```bash
+DATABASE_URL=<supabase-postgres-connection-string>
+DATABASE_SSL=true
+PARKING_QR_KEY_ID=<current-key-id>
+PARKING_QR_SIGNING_KEY=<secret-from-key-vault>
+SUPABASE_JWT_SECRET=<supabase-jwt-secret>
+NEXT_PUBLIC_APP_URL=https://<your-container-app-hostname>
+SMTP_HOST=mail.cryocord.com.my
+SMTP_PORT=465
+SMTP_USER=aiprojects@cryocord.com.my
+SMTP_PASS=<smtp-password>
+```
+
+Run `npm run db:migration:run` from CI/CD or a one-off migration container before
+promoting a new revision. Avoid running migrations automatically in every app
+container startup.
+
+Seed the initial parking admin after migrations:
+
+```bash
+npm run db:seed
+```
+
+The default starter admin uses `PARKING_ADMIN_EMAIL`, `ADMIN_EMAIL`, or `SMTP_USER`
+and is inserted as the `admin` parking role.
+
+For a Laravel-style parking-only fresh rebuild:
+
+```bash
+npm run db:migrate:fresh
+npm run db:migrate:fresh:seed
+npm run db:migrate:fresh:demo
+```
+
+In Docker, run it through the tooling image so TypeScript migration dependencies
+are available:
+
+```bash
+docker compose --profile tools run --rm migrate-fresh
+docker compose --profile tools run --rm migrate-fresh-seed
+docker compose --profile tools run --rm migrate-fresh-demo
+```
+
+The production app image also includes the DB maintenance tooling, so the same npm
+scripts can run from an interactive `/app` shell inside the container after rebuild.
+Because the app image runs with `NODE_ENV=production`, fresh rebuilds require:
+
+```bash
+CONFIRM_PARKING_MIGRATE_FRESH=true npm run db:migrate:fresh
+CONFIRM_PARKING_MIGRATE_FRESH=true npm run db:migrate:fresh:seed
+CONFIRM_PARKING_MIGRATE_FRESH=true npm run db:migrate:fresh:demo
+```
+
+This deletes only Supabase `auth.users` rows linked by `parking.users`, drops the
+`parking` schema and TypeORM migration history, then reruns migrations. In production,
+set `CONFIRM_PARKING_MIGRATE_FRESH=true` to acknowledge the destructive operation.
+The `:demo` variant also seeds an admin, a guard, and representative live, overstay,
+flagged, and exited visitor records for walkthroughs.
+
+## Database
+
+This project uses TypeORM for schema ownership and transactional backend writes, while
+Supabase remains useful for auth, storage, realtime subscriptions, and admin tooling.
+That hybrid keeps Laravel-style migrations and database constraints where scaling
+matters, without forcing every UI read into an ORM abstraction.
+
+The initial migration creates:
+
+| Table | Purpose |
+|---|---|
+| `parking.visitor_types` | Seeded lookup: `guest`, `vendor`, `client`, `staff` |
+| `parking.visitors` | Visitor identity, vehicle number, pending/check-in/check-out timestamps, remarks, QR token id |
+| `parking.visitor_scan_events` | Append-only scan history for pass issuance, check-in, check-out, rejected scans |
+| `parking.users` | Parking staff profiles linked to Supabase `auth.users`; roles are `guard`, `supervisor`, `admin` |
+| `parking.auth_otps` | Short-lived 6-digit email OTP login challenges |
+| `parking.vehicles` | Known vehicle registry and blacklist seed data for guard workflows |
+
+QR codes contain a signed opaque token with the visitor primary key as a reference and
+a JWT id (`jti`). They do not encode name, phone, or vehicle number. Scanning the pass
+through `/api/visitors/scan` checks in a pending visitor or checks out an active one,
+depending on the requested action.
+
+## Testing
+
+Tests use **Vitest**. The priority gate is `npm run test:integration` because it
+exercises the real TypeORM/Supabase flow and database constraints. Unit tests still
+cover pure edge cases quickly, but integration tests are the closest reflection of
+the app's actual data behavior.
+
+Use `.env.test` for integration tests. Start from `.env.test.example` and point
+`TEST_DATABASE_URL` or `SUPABASE_TEST_DB_URL` at a dedicated test Supabase/Postgres
+database. The test setup refuses to run against a remote URL unless it looks like a
+test database or `CONFIRM_TEST_DATABASE_IS_ISOLATED=true` is set.
+
+Mocking policy:
+
+| Concern | Test approach |
+|---|---|
+| Core visitor state and QR lifecycle | Do not mock; unit-test pure rules and integration-test DB flow |
+| Supabase/Postgres | Use isolated `.env.test` DB for integration tests only |
+| Camera, QR scanner, OCR | Mock browser/hardware wrappers in component tests |
+| WhatsApp/email/push delivery | Mock the sender and assert payloads; never send real messages in tests |
+| Test data | Use Faker-backed factories and explicit seeders |
+
+Current coverage focuses on:
+
+| Area | Tests |
+|---|---|
+| Visitor scan state | pending → checked-in, checked-in → checked-out, duplicate scan rejection, cancelled pass rejection, timestamp invariants |
+| Shared utilities | plate normalisation, duration formatting, negative-duration clamp |
+| DB integration | pass creation, seeded visitor types, scan check-in/check-out flow, invalid checkout guard |
 
 ---
 
@@ -73,10 +285,10 @@ src/
     parking/                   Screen-specific: new-entry-flow, plate-capture,
                                qr-pass, qr-scanner, exit-flow, occupancy-hero,
                                visits-list, vehicles-admin, visit-row, pass-view
-  lib/
+    lib/
     enums.ts                   Single source of truth: visit_type, purpose, status…
     types.ts  labels.ts        Domain types + human labels
-    mock.ts   data.ts          Demo data + the single data-access seam (data.*)
+    server/parking-data.ts     DB-backed read model for dashboard/log/admin views
     qr.ts                      Opaque signed pass token (sign/verify)
     ocr.ts                     On-device plate OCR (Tesseract)
     camera.ts                  getUserMedia helpers + error messaging
@@ -88,9 +300,10 @@ public/
   icons/                       App icons (SVG)
 ```
 
-**Good places to start reading:** `src/lib/data.ts` (data seam), `src/lib/enums.ts`
-(domain model), `src/app/parking/page.tsx` (dashboard), and
-`src/components/parking/new-entry-flow.tsx` (the core entry flow).
+**Good places to start reading:** `src/lib/server/parking-data.ts` (DB read model),
+`src/lib/server/visitors.ts` (visitor mutations), `src/lib/enums.ts` (domain model),
+`src/app/parking/page.tsx` (dashboard), and `src/components/parking/new-entry-flow.tsx`
+(the walk-in entry flow).
 
 ---
 
@@ -115,17 +328,17 @@ The module follows a compliance-first architecture (Malaysian PDPA 2010 as amend
 
 ## What's wired vs. stubbed
 
-**Working now (client-side):** all routes and navigation; glassmorphic UI + motion;
-on-device plate OCR; QR generation + scanning; the `wa.me` WhatsApp pass link; the
-public pass page; PWA install + offline banner.
+**Working now:** OTP login, protected parking shell, TypeORM migrations, starter and
+demo seeders, live DB dashboard/log/admin reads, walk-in entry with immediate
+check-in, pre-registration with arrival QR check-in, QR/manual check-out, repeat
+visitor quick re-register, known vehicle/blacklist reads, QR generation/scanning,
+the `wa.me` WhatsApp pass link, the public pass page, PWA install, and offline banner.
 
-**Stubbed (clean seams, ready to wire):**
+**Still stubbed or intentionally local-only:**
 
 | Concern | Where | TODO |
 |---|---|---|
-| Data access | `src/lib/data.ts` → `src/lib/mock.ts` | Swap mock for Supabase queries against the `parking` schema |
 | Audit insert + ICS mirror | `src/lib/audit.ts` | `insertAuditRow` (same tx) + `mirrorToICS` (HMAC + retry/DLQ) |
-| Pass token | `src/lib/qr.ts` | Sign server-side; inject key from Key Vault |
 | Photo storage | entry flow | Upload plate snapshot to Azure Blob (MY West) |
 | WhatsApp | `src/lib/whatsapp.ts` | Optional: WhatsApp Business API for automated + media send |
 | Offline queue | `OfflineBanner` | IndexedDB write queue + background sync |

@@ -1,9 +1,14 @@
 import withPWAInit from "@ducanh2912/next-pwa";
 
+const disablePWA =
+  process.env.NODE_ENV === "development" ||
+  process.env.NEXT_PUBLIC_DISABLE_PWA === "true";
+
 const withPWA = withPWAInit({
   dest: "public",
-  // Disable the service worker in dev so HMR isn't intercepted by the cache.
-  disable: process.env.NODE_ENV === "development",
+  // Disable the service worker in dev/local Docker so local rebuilds are not
+  // intercepted by cached navigation or static assets.
+  disable: disablePWA,
   register: true,
   cacheOnFrontEndNav: true,
   aggressiveFrontEndNavCaching: true,
@@ -19,6 +24,11 @@ const withPWA = withPWAInit({
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  output: "standalone",
+  ...(process.env.NODE_ENV === "development"
+    ? { allowedDevOrigins: ["*.trycloudflare.com"] }
+    : {}),
+  serverExternalPackages: ["typeorm", "pg"],
   images: {
     // Azure Blob (MY West) is the only allowed image origin in production.
     remotePatterns: [

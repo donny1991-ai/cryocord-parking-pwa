@@ -9,8 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusPill, Chip } from "@/components/ui/badge";
 import { checkCameraSupport } from "@/lib/camera";
-import { data } from "@/lib/data";
-import { MOCK_NOW } from "@/lib/mock";
 import type { Visit } from "@/lib/types";
 import { durationSince, formatTime, normalisePlate } from "@/lib/utils";
 import { visitTypeLabel } from "@/lib/labels";
@@ -21,13 +19,26 @@ const QrScanner = dynamic(() => import("./qr-scanner").then((m) => m.QrScanner),
   loading: () => <div className="aspect-square animate-pulse rounded-3xl bg-ink/80" />,
 });
 
-export function ExitFlow() {
-  const inside = data.insideVisits();
+export function ExitFlow({
+  insideVisits,
+  nowIso,
+  initialVisitId,
+}: {
+  insideVisits: Visit[];
+  nowIso: string;
+  initialVisitId?: string;
+}) {
+  const inside = insideVisits;
+  const now = useMemo(() => new Date(nowIso), [nowIso]);
   const [query, setQuery] = useState("");
   const [scanning, setScanning] = useState(false);
   const [camMsg, setCamMsg] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Visit | null>(null);
+  const [selected, setSelected] = useState<Visit | null>(
+    initialVisitId ? inside.find((visit) => visit.id === initialVisitId) ?? null : null,
+  );
   const [exited, setExited] = useState(false);
+  const [checkingOut, setCheckingOut] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   function startScan() {
     const support = checkCameraSupport();
@@ -43,13 +54,64 @@ export function ExitFlow() {
     );
   }, [query, inside]);
 
-  function resolveToken(token: string) {
-    // Production: verifyVisitToken(token) → visitId. Demo: parse trailing id.
-    const id = token.split(/[:.]/).pop() ?? "";
-    const v = data.getVisit(id);
+  async function resolveToken(token: string) {
+    try {
+      const response = await fetch("/api/visitors/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, action: "check_out" }),
+      });
+
+      if (response.ok) {
+        const payload = await response.json();
+        const visitor = payload.visitor;
+        const v: Visit = {
+          id: visitor.id,
+          plate: visitor.vehicleNumber,
+          visitorName: visitor.name,
+          visitorContact: visitor.phoneNumber,
+          visitType: visitor.typeCode as Visit["visitType"],
+          purpose: visitor.purpose as Visit["purpose"],
+          entryTime: visitor.checkedIn ?? new Date().toISOString(),
+          entryGuardId: visitor.checkedInBy ?? "system",
+          exitTime: visitor.checkedOut ?? new Date().toISOString(),
+          exitGuardId: visitor.checkedOutBy ?? "system",
+          status: "exited",
+          createdAt: visitor.createdAt,
+        };
+
+        setScanning(false);
+        setSelected(v);
+        setExited(true);
+        return;
+      }
+    } catch {
+      // Keep the demo scanner path alive when no database is configured.
+    }
+
     setScanning(false);
-    if (v) setSelected(v);
-    else alert("Pass not recognised. Search by plate instead.");
+    alert("Pass not recognised. Search by plate instead.");
+  }
+
+  async function confirmSelectedExit() {
+    if (!selected) return;
+
+    setCheckingOut(true);
+    setCheckoutError(null);
+    try {
+      const response = await fetch(`/api/visitors/${selected.id}/checkout`, {
+        method: "POST",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Unable to log exit.");
+      }
+      setExited(true);
+    } catch (error) {
+      setCheckoutError(error instanceof Error ? error.message : "Unable to log exit.");
+    } finally {
+      setCheckingOut(false);
+    }
   }
 
   if (exited && selected) {
@@ -63,11 +125,11 @@ export function ExitFlow() {
         <GlassCard padding="lg" className="mx-auto max-w-sm space-y-1 text-left">
           <Row label="Plate" value={selected.plate} />
           <Row label="Visitor" value={selected.visitorName} />
-          <Row label="Duration on site" value={durationSince(selected.entryTime, MOCK_NOW)} />
-          <Row label="Exit time" value={formatTime(MOCK_NOW)} />
+          <Row label="Duration on site" value={durationSince(selected.entryTime, now)} />
+          <Row label="Exit time" value={formatTime(now)} />
         </GlassCard>
-        <Link href="/parking">
-          <Button variant="glass" className="mx-auto w-full max-w-sm">Done</Button>
+        <Link href="/parking" prefetch={false} className="mx-auto block w-full max-w-sm pt-2">
+          <Button variant="glass" className="w-full">Done</Button>
         </Link>
       </div>
     );
@@ -84,16 +146,21 @@ export function ExitFlow() {
           <p className="text-3xl font-bold tracking-wide text-ink">{selected.plate}</p>
           <div className="flex flex-wrap items-center gap-2">
             <Chip tone="brand">{visitTypeLabel(selected.visitType)}</Chip>
-            <Chip>On site {durationSince(selected.entryTime, MOCK_NOW)}</Chip>
+            <Chip>On site {durationSince(selected.entryTime, now)}</Chip>
           </div>
           <p className="text-sm text-ink-soft">{selected.visitorName} · {selected.visitorContact}</p>
         </GlassCard>
         <div className="grid grid-cols-2 gap-3">
           <Button variant="glass" onClick={() => setSelected(null)}>Cancel</Button>
-          <Button onClick={() => setExited(true)}>
-            <DoorOpen className="h-5 w-5" /> Confirm exit
+          <Button onClick={confirmSelectedExit} disabled={checkingOut}>
+            <DoorOpen className="h-5 w-5" /> {checkingOut ? "Logging..." : "Confirm exit"}
           </Button>
         </div>
+        {checkoutError && (
+          <p className="rounded-2xl bg-brand/10 px-3 py-2 text-center text-xs font-semibold text-brand">
+            {checkoutError}
+          </p>
+        )}
       </div>
     );
   }
@@ -152,7 +219,7 @@ export function ExitFlow() {
               </p>
             </div>
             <span className="text-xs font-semibold tabular-nums text-ink-soft">
-              {durationSince(v.entryTime, MOCK_NOW)}
+              {durationSince(v.entryTime, now)}
             </span>
           </button>
         ))}
