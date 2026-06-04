@@ -81,13 +81,76 @@ The production image uses Next.js standalone output and listens on `PORT=3000` w
 `HOSTNAME=0.0.0.0`, which is the shape Azure Container Apps expects. Configure the
 Container App health probe at `/api/health`.
 
-For Azure Container Apps, set these as secrets/environment variables:
+## Azure Container Apps
+
+This repo includes an Azure Developer CLI (`azd`) + Bicep scaffold:
+
+- `azure.yaml` builds the existing Dockerfile and deploys the `web` service to
+  Azure Container Apps.
+- `infra/main.bicep` creates a dedicated project resource group and app resources.
+- The shared Supabase/Postgres database remains external and is passed through
+  `DATABASE_URL`, so it can stay in its existing resource group and schema model.
+
+Recommended production environment setup:
+
+```bash
+azd env new prod
+azd env set AZURE_LOCATION southeastasia
+
+# Use the subscription id for "Azure subscription 1".
+azd env set AZURE_SUBSCRIPTION_ID <subscription-id>
+azd env set AZURE_CONTAINER_REGISTRY_NAME acrcryocordparkingprod
+
+azd env set DATABASE_URL '<supabase-postgres-connection-string>'
+azd env set DATABASE_SSL true
+azd env set PARKING_QR_KEY_ID prod
+azd env set PARKING_QR_SIGNING_KEY '<qr-signing-key>'
+azd env set SUPABASE_JWT_SECRET '<supabase-jwt-secret>'
+azd env set SMTP_PASS '<smtp-password>'
+```
+
+`PARKING_QR_SIGNING_KEY`, `SUPABASE_JWT_SECRET`, and `SMTP_PASS` are optional for
+initial provisioning. If they are not set in `azd`, Bicep omits those Container App
+secret/env references so you can add them manually in Azure Container Apps after the
+resource exists. They are still required before the production app can handle QR,
+auth, and OTP email flows.
+
+Optional overrides:
+
+```bash
+azd env set NEXT_PUBLIC_APP_URL https://parking.example.com
+azd env set AUTH_OTP_SECRET '<dedicated-otp-secret>'
+azd env set SMTP_HOST mail.cryocord.com.my
+azd env set SMTP_PORT 465
+azd env set SMTP_USER aiprojects@cryocord.com.my
+azd env set SMTP_FROM aiprojects@cryocord.com.my
+```
+
+Provision and deploy:
+
+```bash
+azd provision
+azd deploy web
+```
+
+For a later hardening pass, prefer Key Vault-backed Container Apps secrets with the
+app's managed identity instead of storing production secret values directly in the
+Container App configuration.
+
+Run migrations as a separate release step before promoting the new app revision:
+
+```bash
+npm run db:migration:run
+```
+
+Runtime variable reference:
 
 ```bash
 DATABASE_URL=<supabase-postgres-connection-string>
 DATABASE_SSL=true
 PARKING_QR_KEY_ID=<current-key-id>
 PARKING_QR_SIGNING_KEY=<secret-from-key-vault>
+SUPABASE_JWT_SECRET=<supabase-jwt-secret>
 NEXT_PUBLIC_APP_URL=https://<your-container-app-hostname>
 SMTP_HOST=mail.cryocord.com.my
 SMTP_PORT=465
