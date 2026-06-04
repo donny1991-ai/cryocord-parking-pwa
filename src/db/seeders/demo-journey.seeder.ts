@@ -108,10 +108,10 @@ const demoVisits: DemoVisit[] = [
     phone: "+60 19-700 8800",
     typeCode: "vendor",
     purpose: "maintenance",
-    remarks: "Chiller servicing at Lab cryo store.",
+    remarks: "Chiller servicing at Lab cryo store. Overstay sample for admin review.",
     hostStaffId: "EMP-0405",
     hostDepartment: "R&D",
-    checkedInMinutesAgo: 330,
+    checkedInMinutesAgo: 1560,
   },
   {
     id: "00000000-0000-4000-8000-000000001006",

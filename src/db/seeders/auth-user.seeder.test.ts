@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { seedAuthParkingUser } from "./auth-user.seeder";
 
-function createManager(existingAuthUserId?: string) {
+function createManager(existingAuthUser?: { id: string; email?: string }) {
   return {
     query: vi
       .fn()
-      .mockResolvedValueOnce(existingAuthUserId ? [{ id: existingAuthUserId }] : [])
+      .mockResolvedValueOnce(existingAuthUser ? [existingAuthUser] : [])
       .mockResolvedValue([]),
     findOneByOrFail: vi.fn().mockImplementation(async (_schema, where) => ({
       id: where.id,
@@ -19,7 +19,7 @@ function createManager(existingAuthUserId?: string) {
 describe("seedAuthParkingUser", () => {
   it("reuses an existing auth user by email without updating auth.users", async () => {
     const existingAuthUserId = "11111111-1111-4111-8111-111111111111";
-    const manager = createManager(existingAuthUserId);
+    const manager = createManager({ id: existingAuthUserId, email: "admin@example.com" });
 
     await seedAuthParkingUser(manager as never, {
       email: "Admin@Example.com",
@@ -36,6 +36,34 @@ describe("seedAuthParkingUser", () => {
       "Parking Admin",
       null,
       "admin",
+      true,
+    ]);
+  });
+
+  it("reuses an existing requested auth id when the email lookup does not match", async () => {
+    const existingAuthUserId = "00000000-0000-4000-8000-000000000101";
+    const manager = createManager({ id: existingAuthUserId, email: "old.guard@parking.test" });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await seedAuthParkingUser(manager as never, {
+        id: existingAuthUserId,
+        email: "aziz.guard@parking.test",
+        name: "Aziz Rahman",
+        role: "guard",
+      });
+    } finally {
+      warn.mockRestore();
+    }
+
+    const sqlStatements = manager.query.mock.calls.map(([sql]) => String(sql));
+    expect(sqlStatements).toHaveLength(2);
+    expect(sqlStatements.some((sql) => sql.includes('INSERT INTO "auth"."users"'))).toBe(false);
+    expect(manager.query.mock.calls[1][1]).toEqual([
+      existingAuthUserId,
+      "Aziz Rahman",
+      null,
+      "guard",
       true,
     ]);
   });

@@ -21,12 +21,24 @@ export async function seedAuthParkingUser(
   input: SeedAuthParkingUserInput,
 ): Promise<ParkingUserEntity> {
   const email = normalizeEmail(input.email);
-  const existingAuthUsers = await manager.query(
-    `SELECT "id" FROM "auth"."users" WHERE lower("email") = $1 LIMIT 1`,
-    [email],
-  );
+  const existingAuthUsers = input.id
+    ? await manager.query(
+        `
+          SELECT "id", "email"
+          FROM "auth"."users"
+          WHERE lower("email") = $1 OR "id" = $2
+          ORDER BY CASE WHEN lower("email") = $1 THEN 0 ELSE 1 END
+          LIMIT 1
+        `,
+        [email, input.id],
+      )
+    : await manager.query(
+        `SELECT "id", "email" FROM "auth"."users" WHERE lower("email") = $1 LIMIT 1`,
+        [email],
+      );
   const existingAuthUserId = existingAuthUsers[0]?.id;
-  const id = input.id ?? existingAuthUserId ?? randomUUID();
+  const existingAuthUserEmail = existingAuthUsers[0]?.email;
+  const id = existingAuthUserId ?? input.id ?? randomUUID();
   const active = input.active ?? true;
   const phone = input.phone ?? null;
   const isSuperAdmin = input.isSuperAdmin ?? input.role === "admin";
@@ -64,6 +76,11 @@ export async function seedAuthParkingUser(
         )
       `,
       [id, email, input.name, isSuperAdmin],
+    );
+  } else if (existingAuthUserEmail && normalizeEmail(existingAuthUserEmail) !== email) {
+    console.warn(
+      `Reusing existing auth.users row ${existingAuthUserId} for parking access; ` +
+        `stored email ${existingAuthUserEmail} differs from requested ${email}.`,
     );
   }
 
