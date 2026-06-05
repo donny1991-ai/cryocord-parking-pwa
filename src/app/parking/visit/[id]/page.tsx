@@ -141,6 +141,9 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
       <GlassCard padding="lg" className="space-y-3">
         <DetailRow icon={UserRound} label="Visitor" value={visit.visitorName} />
         <DetailRow icon={Phone} label="Contact" value={visit.visitorContact} />
+        {visit.organisation && (
+          <DetailRow icon={Hash} label="Company / organisation" value={visit.organisation} />
+        )}
         <DetailRow icon={UserRound} label="Host" value={host ? `${host.name} · ${host.department}` : "—"} />
         <DetailRow icon={primaryTimeRow.icon} label={primaryTimeRow.label} value={primaryTimeRow.value} />
         {visit.exitTime && (

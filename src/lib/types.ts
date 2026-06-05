@@ -23,6 +23,7 @@ export interface Visit {
   plate: string;
   visitorName: string;
   visitorContact: string;
+  organisation?: string;
   visitorIc?: string; // PDPA-sensitive, optional, off by default
   visitType: VisitType;
   purpose: Purpose;

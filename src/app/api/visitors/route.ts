@@ -1,14 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { authErrorResponse, requireParkingUser } from "@/lib/server/auth";
-import { assertVisitDate, assertVisitorTypeCode, createVisitorPass } from "@/lib/server/visitors";
-import { PURPOSES } from "@/lib/enums";
+import { assertPurpose, assertVisitDate, assertVisitorTypeCode, createVisitorPass } from "@/lib/server/visitors";
 
 export const runtime = "nodejs";
 
 const LIMITS = {
   name: 160,
   phoneNumber: 40,
+  organisation: 160,
   vehicleNumber: 32,
   remarks: 2000,
   hostStaffId: 80,
@@ -26,9 +26,10 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const name = String(body.name ?? "").trim();
     const phoneNumber = String(body.phoneNumber ?? "").trim();
+    const organisation = String(body.organisation ?? "").trim();
     const vehicleNumber = String(body.vehicleNumber ?? "").trim();
     const typeCode = assertVisitorTypeCode(body.typeCode);
-    const purpose = (PURPOSES as readonly string[]).includes(body.purpose) ? body.purpose : "other";
+    const purpose = assertPurpose(body.purpose);
     const visitDate = body.visitDate ? assertVisitDate(body.visitDate) : undefined;
     const remarks = String(body.remarks ?? "").trim();
     const hostStaffId = String(body.hostStaffId ?? "").trim();
@@ -45,6 +46,7 @@ export async function POST(request: NextRequest) {
     if (
       tooLong(name, LIMITS.name) ||
       tooLong(phoneNumber, LIMITS.phoneNumber) ||
+      tooLong(organisation, LIMITS.organisation) ||
       tooLong(vehicleNumber, LIMITS.vehicleNumber) ||
       tooLong(remarks, LIMITS.remarks) ||
       tooLong(hostStaffId, LIMITS.hostStaffId) ||
@@ -57,6 +59,7 @@ export async function POST(request: NextRequest) {
     const result = await createVisitorPass({
       name,
       phoneNumber,
+      organisation,
       vehicleNumber,
       typeCode,
       purpose,
@@ -79,11 +82,19 @@ export async function POST(request: NextRequest) {
 
     const message = error instanceof Error ? error.message : "Unable to create visitor pass.";
     const missingDb = message.includes("DATABASE_URL") || message.includes("SUPABASE_DB_URL");
-    if (message === "Invalid visitor type." || message.startsWith("Visit date")) {
+    if (
+      message === "Invalid visitor type." ||
+      message === "Invalid purpose." ||
+      message.startsWith("Visit date") ||
+      message.includes("Notes are required")
+    ) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
     if (missingDb) {
       return NextResponse.json({ error: "Visitor database is not configured." }, { status: 503 });
+    }
+    if (message.includes("Visitor type reference data is missing")) {
+      return NextResponse.json({ error: message }, { status: 503 });
     }
     return NextResponse.json({ error: "Unable to create visitor pass." }, { status: 500 });
   }

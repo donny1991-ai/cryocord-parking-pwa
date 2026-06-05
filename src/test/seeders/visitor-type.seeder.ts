@@ -1,5 +1,6 @@
 import type { EntityManager } from "typeorm";
 import { VisitorTypeSchema } from "@/db/entities";
+import { labelize } from "@/lib/labels";
 import { visitorTypeCodes } from "../factories/visitor.factory";
 
 export async function seedVisitorTypes(manager: EntityManager) {
@@ -8,7 +9,7 @@ export async function seedVisitorTypes(manager: EntityManager) {
       VisitorTypeSchema,
       {
         code,
-        label: code.charAt(0).toUpperCase() + code.slice(1),
+        label: labelize(code),
       },
       ["code"],
     );

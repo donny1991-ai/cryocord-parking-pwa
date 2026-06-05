@@ -4,7 +4,16 @@ import type { CreateVisitorInput, VisitorTypeCode } from "@/lib/server/visitors"
 import type { VisitorScanState } from "@/lib/server/visitor-state";
 import { normalisePlate } from "@/lib/utils";
 
-export const visitorTypeCodes: VisitorTypeCode[] = ["guest", "vendor", "client", "staff"];
+export const visitorTypeCodes: VisitorTypeCode[] = [
+  "visitor",
+  "vendor",
+  "courier",
+  "patient",
+  "staff",
+  "contractor",
+  "vip",
+  "other",
+];
 
 export function vehicleNumberFactory() {
   return `${faker.string.alpha({ length: 3, casing: "upper" })} ${faker.number.int({ min: 100, max: 9999 })}`;
@@ -14,6 +23,7 @@ export function createVisitorInputFactory(overrides: Partial<CreateVisitorInput>
   return {
     name: faker.person.fullName(),
     phoneNumber: faker.phone.number({ style: "international" }),
+    organisation: faker.company.name(),
     vehicleNumber: vehicleNumberFactory(),
     typeCode: faker.helpers.arrayElement(visitorTypeCodes),
     remarks: faker.lorem.sentence(),
@@ -39,6 +49,7 @@ export function visitorEntityFactory(overrides: Partial<VisitorEntity> = {}): Vi
     id: faker.string.uuid(),
     name: faker.person.fullName(),
     phoneNumber: faker.phone.number({ style: "international" }),
+    organisation: null,
     vehicleNumber,
     vehicleNumberNormalised: normalisePlate(vehicleNumber),
     checkedIn: null,

@@ -16,7 +16,7 @@ import { seedVisitorTypes } from "@/test/seeders/visitor-type.seeder";
 import { signTestSupabaseAccessToken } from "@/test/auth-token";
 import { getPreRegistrationTokenExpiresAt, signVisitToken } from "@/lib/qr";
 import { getParkingSnapshot, getVisitById } from "./parking-data";
-import { createVisitorPass, getPublicVisitorPass, scanVisitorPass } from "./visitors";
+import { createVisitorPass, getPublicVisitorPass, rejectVisitorPassScan, reviewVisitorPass, scanVisitorPass } from "./visitors";
 
 function jsonRequest(path: string, body: unknown, token?: string, method = "POST") {
   return new NextRequest(`http://localhost${path}`, {
@@ -65,8 +65,9 @@ describe("visitor pass database flow", () => {
     const input = createVisitorInputFactory({
       name: "  Aisyah Test Visitor  ",
       phoneNumber: "  +60 12-345 6789  ",
+      organisation: "  CryoCord Test Partner  ",
       vehicleNumber: "  wa 18-k  ",
-      typeCode: "guest",
+      typeCode: "visitor",
       remarks: "  integration test visitor  ",
     });
 
@@ -77,8 +78,9 @@ describe("visitor pass database flow", () => {
     expect(issued.visitor).toMatchObject({
       name: "Aisyah Test Visitor",
       phoneNumber: "+60 12-345 6789",
+      organisation: "CryoCord Test Partner",
       vehicleNumber: "WA 18-K",
-      typeCode: "guest",
+      typeCode: "visitor",
       status: "pending",
       checkedIn: null,
       checkedOut: null,
@@ -135,7 +137,7 @@ describe("visitor pass database flow", () => {
   });
 
   it("rejects duplicate check-in without adding a second check-in event", async () => {
-    const issued = await createVisitorPass(createVisitorInputFactory({ typeCode: "client" }));
+    const issued = await createVisitorPass(createVisitorInputFactory({ typeCode: "patient" }));
     await scanVisitorPass({ token: issued.token, action: "check_in" });
 
     await expect(scanVisitorPass({ token: issued.token, action: "check_in" })).rejects.toThrow(
@@ -149,7 +151,7 @@ describe("visitor pass database flow", () => {
   });
 
   it("rejects duplicate check-out after visitor has left", async () => {
-    const issued = await createVisitorPass(createVisitorInputFactory({ typeCode: "guest" }));
+    const issued = await createVisitorPass(createVisitorInputFactory({ typeCode: "visitor" }));
     await scanVisitorPass({ token: issued.token, action: "auto" });
     await scanVisitorPass({ token: issued.token, action: "auto" });
 
@@ -159,7 +161,7 @@ describe("visitor pass database flow", () => {
   });
 
   it("hides the public QR pass after checkout", async () => {
-    const issued = await createVisitorPass(createVisitorInputFactory({ typeCode: "guest" }));
+    const issued = await createVisitorPass(createVisitorInputFactory({ typeCode: "visitor" }));
 
     await expect(getPublicVisitorPass(issued.token)).resolves.toMatchObject({
       state: "active",
@@ -184,7 +186,7 @@ describe("visitor pass database flow", () => {
 
   it("extends pre-registration token expiry to the selected visit date grace period", async () => {
     const visitDate = futureVisitDate();
-    const issued = await createVisitorPass(createVisitorInputFactory({ typeCode: "guest", visitDate }));
+    const issued = await createVisitorPass(createVisitorInputFactory({ typeCode: "visitor", visitDate }));
     const visitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: issued.visitor.id });
 
     expect(visitor.visitDate).toBe(visitDate);
@@ -207,12 +209,80 @@ describe("visitor pass database flow", () => {
     });
   });
 
+  it("uses the database visit date policy instead of a stale JWT exp for pending pre-registrations", async () => {
+    const visitDate = futureVisitDate();
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({
+        vehicleNumber: "POLICY 100",
+        typeCode: "visitor",
+        visitDate,
+      }),
+    );
+    const visitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: issued.visitor.id });
+    const staleToken = await signVisitToken(
+      issued.visitor.id,
+      visitor.qrTokenJti ?? undefined,
+      new Date("2026-06-03T00:00:00.000Z"),
+      new Date("2026-06-03T01:00:00.000Z"),
+    );
+
+    await expect(getPublicVisitorPass(staleToken)).resolves.toMatchObject({
+      state: "active",
+      status: "pending",
+      token: staleToken,
+      validUntil: getPreRegistrationTokenExpiresAt(visitDate).toISOString(),
+    });
+
+    const checkedIn = await scanVisitorPass({ token: staleToken, action: "check_in", guardId: "guard-test" });
+    expect(checkedIn).toMatchObject({
+      id: issued.visitor.id,
+      status: "checked_in",
+      checkedIn: expect.any(String),
+    });
+  });
+
+  it("keeps pending pre-registration passes usable after a signing key change when the DB token id matches", async () => {
+    const originalKey = process.env.PARKING_QR_SIGNING_KEY;
+    const visitDate = futureVisitDate();
+    process.env.PARKING_QR_SIGNING_KEY = "before-docker-rebuild-test-key";
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({
+        vehicleNumber: "KEY 100",
+        typeCode: "visitor",
+        visitDate,
+      }),
+    );
+    process.env.PARKING_QR_SIGNING_KEY = "after-docker-rebuild-test-key";
+
+    try {
+      await expect(getPublicVisitorPass(issued.token)).resolves.toMatchObject({
+        state: "active",
+        status: "pending",
+        token: issued.token,
+        validUntil: getPreRegistrationTokenExpiresAt(visitDate).toISOString(),
+      });
+
+      const checkedIn = await scanVisitorPass({ token: issued.token, action: "check_in", guardId: "guard-test" });
+      expect(checkedIn).toMatchObject({
+        id: issued.visitor.id,
+        status: "checked_in",
+        checkedIn: expect.any(String),
+      });
+    } finally {
+      if (originalKey === undefined) {
+        delete process.env.PARKING_QR_SIGNING_KEY;
+      } else {
+        process.env.PARKING_QR_SIGNING_KEY = originalKey;
+      }
+    }
+  });
+
   it("loads pre-registered visit details with the selected visit date expiry", async () => {
     const visitDate = futureVisitDate();
     const issued = await createVisitorPass(
       createVisitorInputFactory({
         vehicleNumber: "PRE 7788",
-        typeCode: "guest",
+        typeCode: "visitor",
         visitDate,
       }),
     );
@@ -233,7 +303,7 @@ describe("visitor pass database flow", () => {
     const issued = await createVisitorPass(
       createVisitorInputFactory({
         vehicleNumber: "CXL 500",
-        typeCode: "guest",
+        typeCode: "visitor",
         visitDate,
       }),
     );
@@ -268,8 +338,31 @@ describe("visitor pass database flow", () => {
 
   it("rejects invalid visitor type codes", async () => {
     await expect(
-      createVisitorPass(createVisitorInputFactory({ typeCode: "courier" as never })),
+      createVisitorPass(createVisitorInputFactory({ typeCode: "unknown" as never })),
     ).rejects.toThrow();
+  });
+
+  it("requires notes when visit type or purpose is Other", async () => {
+    await expect(
+      createVisitorPass(createVisitorInputFactory({ typeCode: "other", purpose: "meeting", remarks: "" })),
+    ).rejects.toThrow("Notes are required when visit type or purpose is Other.");
+
+    await expect(
+      createVisitorPass(createVisitorInputFactory({ typeCode: "visitor", purpose: "other", remarks: "" })),
+    ).rejects.toThrow("Notes are required when visit type or purpose is Other.");
+
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({
+        typeCode: "other",
+        purpose: "other",
+        remarks: "Walk-in exception approved by supervisor.",
+      }),
+    );
+    expect(issued.visitor).toMatchObject({
+      typeCode: "other",
+      purpose: "other",
+      remarks: "Walk-in exception approved by supervisor.",
+    });
   });
 
   it("rejects forged tokens with mismatched token id", async () => {
@@ -305,7 +398,7 @@ describe("visitor pass database flow", () => {
   });
 
   it("rejects malformed scan actions", async () => {
-    const issued = await createVisitorPass(createVisitorInputFactory({ typeCode: "guest" }));
+    const issued = await createVisitorPass(createVisitorInputFactory({ typeCode: "visitor" }));
 
     await expect(scanVisitorPass({ token: issued.token, action: "checkout" as never })).rejects.toThrow(
       "Invalid scan action.",
@@ -314,7 +407,7 @@ describe("visitor pass database flow", () => {
 
   it("enforces one active checked-in visitor per normalised vehicle number", async () => {
     const first = await createVisitorPass(
-      createVisitorInputFactory({ vehicleNumber: "WA 18 K", typeCode: "guest" }),
+      createVisitorInputFactory({ vehicleNumber: "WA 18 K", typeCode: "visitor" }),
     );
     const second = await createVisitorPass(
       createVisitorInputFactory({ vehicleNumber: "wa-18-k", typeCode: "vendor" }),
@@ -332,7 +425,7 @@ describe("visitor pass database flow", () => {
 
   it("allows the same vehicle to check in again after the previous visitor checks out", async () => {
     const first = await createVisitorPass(
-      createVisitorInputFactory({ vehicleNumber: "JQ 900", typeCode: "guest" }),
+      createVisitorInputFactory({ vehicleNumber: "JQ 900", typeCode: "visitor" }),
     );
     const second = await createVisitorPass(
       createVisitorInputFactory({ vehicleNumber: "jq-900", typeCode: "vendor" }),
@@ -347,7 +440,7 @@ describe("visitor pass database flow", () => {
 
   it("rejects unauthenticated visitor endpoint requests", async () => {
     const response = await createVisitorEndpoint(
-      jsonRequest("/api/visitors", createVisitorInputFactory({ typeCode: "guest" })),
+      jsonRequest("/api/visitors", createVisitorInputFactory({ typeCode: "visitor" })),
     );
 
     expect(response.status).toBe(401);
@@ -378,7 +471,7 @@ describe("visitor pass database flow", () => {
       jsonRequest(
         "/api/visitors",
         {
-          ...createVisitorInputFactory({ typeCode: "client" }),
+          ...createVisitorInputFactory({ typeCode: "patient" }),
           guardId: "spoofed-client-value",
         },
         token,
@@ -394,6 +487,66 @@ describe("visitor pass database flow", () => {
     expect(visitor.createdBy).toBe(guard.id);
   });
 
+  it("creates a pre-registered Other visitor through the authenticated endpoint when remarks are provided", async () => {
+    const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
+    const token = await signTestSupabaseAccessToken(guard.id);
+    const visitDate = futureVisitDate();
+
+    const response = await createVisitorEndpoint(
+      jsonRequest(
+        "/api/visitors",
+        {
+          name: "Visitor11",
+          phoneNumber: "0196776100",
+          vehicleNumber: "TEZ 1234",
+          typeCode: "other",
+          purpose: "sample_delivery",
+          visitDate,
+          remarks: "Testing other remarks",
+          checkInOnCreate: false,
+        },
+        token,
+      ),
+    );
+
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      token: expect.any(String),
+      visitor: {
+        name: "Visitor11",
+        phoneNumber: "0196776100",
+        vehicleNumber: "TEZ 1234",
+        typeCode: "other",
+        purpose: "sample_delivery",
+        remarks: "Testing other remarks",
+        status: "pending",
+        checkedIn: null,
+      },
+    });
+  });
+
+  it("rejects invalid purpose values on the authenticated visitor endpoint", async () => {
+    const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
+    const token = await signTestSupabaseAccessToken(guard.id);
+
+    const response = await createVisitorEndpoint(
+      jsonRequest(
+        "/api/visitors",
+        {
+          ...createVisitorInputFactory({ typeCode: "visitor" }),
+          purpose: "not_a_real_purpose",
+        },
+        token,
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Invalid purpose.",
+    });
+  });
+
   it("can check in visitor passes immediately when the entry endpoint requests it", async () => {
     const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
     const token = await signTestSupabaseAccessToken(guard.id);
@@ -402,7 +555,7 @@ describe("visitor pass database flow", () => {
       jsonRequest(
         "/api/visitors",
         {
-          ...createVisitorInputFactory({ typeCode: "guest" }),
+          ...createVisitorInputFactory({ typeCode: "visitor" }),
           checkInOnCreate: true,
         },
         token,
@@ -427,7 +580,7 @@ describe("visitor pass database flow", () => {
     const guard = await seedParkingUser(AppDataSource.manager, { role: "supervisor" });
     const token = await signTestSupabaseAccessToken(guard.id);
     const issuedResponse = await createVisitorEndpoint(
-      jsonRequest("/api/visitors", createVisitorInputFactory({ typeCode: "guest" }), token),
+      jsonRequest("/api/visitors", createVisitorInputFactory({ typeCode: "visitor" }), token),
     );
     const issued = await issuedResponse.json();
 
@@ -471,7 +624,7 @@ describe("visitor pass database flow", () => {
           ...createVisitorInputFactory({
             name: "Pre Registered Visitor",
             vehicleNumber: "PRE 4321",
-            typeCode: "guest",
+            typeCode: "visitor",
           }),
           visitDate,
           checkInOnCreate: false,
@@ -503,9 +656,199 @@ describe("visitor pass database flow", () => {
     expect(visitor.checkedInBy).toBe(guard.id);
   });
 
+  it("reviews a pre-registered QR without checking in until the guard approves", async () => {
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({
+        name: "Manual Verify Visitor",
+        vehicleNumber: "REV 4321",
+        typeCode: "visitor",
+        visitDate: futureVisitDate(),
+      }),
+    );
+
+    const reviewed = await reviewVisitorPass({ token: issued.token, guardId: "guard-review" });
+
+    expect(reviewed).toMatchObject({
+      id: issued.visitor.id,
+      vehicleNumber: "REV 4321",
+      status: "pending",
+      checkedIn: null,
+    });
+
+    const visitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: issued.visitor.id });
+    expect(visitor.status).toBe("pending");
+    expect(visitor.checkedIn).toBeNull();
+
+    const reviewedEvents = await AppDataSource.manager.count(VisitorScanEventSchema, {
+      where: { visitorId: visitor.id, eventType: "scan_reviewed" },
+    });
+    const checkInEvents = await AppDataSource.manager.count(VisitorScanEventSchema, {
+      where: { visitorId: visitor.id, eventType: "check_in" },
+    });
+    expect(reviewedEvents).toBe(1);
+    expect(checkInEvents).toBe(0);
+  });
+
+  it("approves arrival with guard-edited details and records the edit audit event", async () => {
+    const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
+    const token = await signTestSupabaseAccessToken(guard.id);
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({
+        name: "Typo Name",
+        phoneNumber: "+60 11 111 1111",
+        vehicleNumber: "TYPO 100",
+        typeCode: "visitor",
+        visitDate: futureVisitDate(),
+      }),
+    );
+
+    const reviewResponse = await scanVisitorEndpoint(
+      jsonRequest("/api/visitors/scan", { token: issued.token, action: "review" }, token),
+    );
+    expect(reviewResponse.status).toBe(200);
+    await expect(reviewResponse.json()).resolves.toMatchObject({
+      visitor: {
+        status: "pending",
+        vehicleNumber: "TYPO 100",
+      },
+    });
+
+    const approveResponse = await scanVisitorEndpoint(
+      jsonRequest(
+        "/api/visitors/scan",
+        {
+          token: issued.token,
+          action: "check_in",
+          visitor: {
+            name: "Corrected Name",
+            phoneNumber: "+60 12 222 2222",
+            organisation: "Corrected Sdn Bhd",
+            vehicleNumber: "OK 200",
+            typeCode: "vendor",
+            purpose: "delivery",
+            remarks: "Plate corrected at gate.",
+          },
+        },
+        token,
+      ),
+    );
+
+    expect(approveResponse.status).toBe(200);
+    await expect(approveResponse.json()).resolves.toMatchObject({
+      visitor: {
+        name: "Corrected Name",
+        phoneNumber: "+60 12 222 2222",
+        organisation: "Corrected Sdn Bhd",
+        vehicleNumber: "OK 200",
+        typeCode: "vendor",
+        purpose: "delivery",
+        remarks: "Plate corrected at gate.",
+        status: "checked_in",
+        checkedIn: expect.any(String),
+      },
+    });
+
+    const visitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: issued.visitor.id });
+    expect(visitor).toMatchObject({
+      name: "Corrected Name",
+      phoneNumber: "+60 12 222 2222",
+      organisation: "Corrected Sdn Bhd",
+      vehicleNumber: "OK 200",
+      vehicleNumberNormalised: "OK200",
+      status: "checked_in",
+      checkedInBy: guard.id,
+    });
+
+    const detailsEvent = await AppDataSource.manager.findOneByOrFail(VisitorScanEventSchema, {
+      visitorId: visitor.id,
+      eventType: "details_updated",
+    });
+    expect(detailsEvent.guardId).toBe(guard.id);
+    expect(detailsEvent.metadata).toMatchObject({
+      reason: "arrival_manual_verification",
+      changes: {
+        name: { from: "Typo Name", to: "Corrected Name" },
+        organisation: { from: expect.any(String), to: "Corrected Sdn Bhd" },
+        vehicleNumber: { from: "TYPO 100", to: "OK 200" },
+      },
+    });
+
+    const checkInEvents = await AppDataSource.manager.count(VisitorScanEventSchema, {
+      where: { visitorId: visitor.id, eventType: "check_in" },
+    });
+    expect(checkInEvents).toBe(1);
+  });
+
+  it("rejects invalid purpose values during guard-edited approval", async () => {
+    const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
+    const token = await signTestSupabaseAccessToken(guard.id);
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({
+        vehicleNumber: "TYPO 300",
+        typeCode: "visitor",
+        visitDate: futureVisitDate(),
+      }),
+    );
+
+    const response = await scanVisitorEndpoint(
+      jsonRequest(
+        "/api/visitors/scan",
+        {
+          token: issued.token,
+          action: "check_in",
+          visitor: {
+            purpose: "not_a_real_purpose",
+          },
+        },
+        token,
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Invalid purpose.",
+    });
+  });
+
+  it("records manual arrival rejections without changing pending visitor state", async () => {
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({
+        vehicleNumber: "NOPE 500",
+        typeCode: "visitor",
+        visitDate: futureVisitDate(),
+      }),
+    );
+
+    const rejected = await rejectVisitorPassScan({
+      token: issued.token,
+      guardId: "guard-reject",
+      reason: "Plate number did not match the vehicle.",
+    });
+
+    expect(rejected).toMatchObject({
+      id: issued.visitor.id,
+      status: "pending",
+      checkedIn: null,
+    });
+
+    const visitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: issued.visitor.id });
+    expect(visitor.status).toBe("pending");
+    expect(visitor.checkedIn).toBeNull();
+
+    const rejectEvent = await AppDataSource.manager.findOneByOrFail(VisitorScanEventSchema, {
+      visitorId: visitor.id,
+      eventType: "scan_rejected",
+    });
+    expect(rejectEvent.guardId).toBe("guard-reject");
+    expect(rejectEvent.metadata).toMatchObject({
+      reason: "manual_rejection",
+      manualReason: "Plate number did not match the vehicle.",
+    });
+  });
+
   it("keeps pending and checked-out visits out of the live snapshot while retaining the QR token", async () => {
     const pending = await createVisitorPass(
-      createVisitorInputFactory({ vehicleNumber: "PEND 100", typeCode: "guest" }),
+      createVisitorInputFactory({ vehicleNumber: "PEND 100", typeCode: "visitor" }),
     );
     const active = await createVisitorPass(
       createVisitorInputFactory({ vehicleNumber: "LIVE 200", typeCode: "vendor" }),
@@ -533,7 +876,7 @@ describe("visitor pass database flow", () => {
     const admin = await seedParkingUser(AppDataSource.manager, { role: "admin" });
     const token = await signTestSupabaseAccessToken(admin.id);
     const issued = await createVisitorPass(
-      createVisitorInputFactory({ vehicleNumber: "FLAG 100", typeCode: "guest" }),
+      createVisitorInputFactory({ vehicleNumber: "FLAG 100", typeCode: "visitor" }),
     );
     await scanVisitorPass({ token: issued.token, action: "check_in", guardId: admin.id });
 

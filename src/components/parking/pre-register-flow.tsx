@@ -5,7 +5,7 @@ import Link from "next/link";
 import { BadgeCheck, CalendarPlus, CheckCircle2, Send, ShieldCheck } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Field, Input, Select } from "@/components/ui/input";
+import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { QrPass } from "./qr-pass";
 import { PURPOSES, VISIT_TYPES, type Purpose, type VisitType } from "@/lib/enums";
 import { labelize } from "@/lib/labels";
@@ -26,6 +26,7 @@ export interface PreRegisterInitialValues {
   visitDate?: string;
   visitorName?: string;
   visitorContact?: string;
+  organisation?: string;
   visitType?: VisitType;
   purpose?: Purpose;
   purposeNotes?: string;
@@ -46,7 +47,8 @@ export function PreRegisterFlow({
   const [visitDate, setVisitDate] = useState(initialValues?.visitDate ?? "");
   const [visitorName, setVisitorName] = useState(initialValues?.visitorName ?? "");
   const [visitorContact, setVisitorContact] = useState(initialValues?.visitorContact ?? "");
-  const [visitType, setVisitType] = useState<VisitType>(initialValues?.visitType ?? "guest");
+  const [organisation, setOrganisation] = useState(initialValues?.organisation ?? "");
+  const [visitType, setVisitType] = useState<VisitType>(initialValues?.visitType ?? "visitor");
   const [purpose, setPurpose] = useState<Purpose>(initialValues?.purpose ?? "meeting");
   const [purposeNotes, setPurposeNotes] = useState(initialValues?.purposeNotes ?? "");
   const [hostStaffId, setHostStaffId] = useState(initialValues?.hostStaffId ?? "");
@@ -77,7 +79,7 @@ export function PreRegisterFlow({
     visitDate &&
     visitorName.trim() &&
     visitorContact.trim() &&
-    (purpose !== "other" || purposeNotes.trim());
+    ((visitType !== "other" && purpose !== "other") || purposeNotes.trim());
 
   async function issuePass() {
     if (!canIssue) return;
@@ -91,6 +93,7 @@ export function PreRegisterFlow({
         body: JSON.stringify({
           name: visitorName,
           phoneNumber: visitorContact,
+          organisation: organisation || undefined,
           vehicleNumber: plate,
           typeCode: visitType,
           purpose,
@@ -213,6 +216,14 @@ export function PreRegisterFlow({
           />
         </Field>
 
+        <Field label="Company / organisation">
+          <Input
+            value={organisation}
+            onChange={(event) => setOrganisation(event.target.value)}
+            placeholder="Company or organisation"
+          />
+        </Field>
+
         <div className="grid grid-cols-2 gap-3">
           <Field label="Visit type" required>
             <Select value={visitType} onChange={(event) => setVisitType(event.target.value as VisitType)}>
@@ -230,12 +241,12 @@ export function PreRegisterFlow({
           </Field>
         </div>
 
-        {purpose === "other" && (
-          <Field label="Purpose notes" required>
-            <Input
+        {(visitType === "other" || purpose === "other") && (
+          <Field label="Notes / remarks" required>
+            <Textarea
               value={purposeNotes}
               onChange={(event) => setPurposeNotes(event.target.value)}
-              placeholder="Describe the purpose"
+              placeholder="Add required details for Other"
             />
           </Field>
         )}

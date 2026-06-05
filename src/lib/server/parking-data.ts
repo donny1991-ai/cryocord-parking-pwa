@@ -43,6 +43,7 @@ interface VisitorReadRow {
   id: string;
   name: string;
   phoneNumber: string;
+  organisation: string | null;
   vehicleNumber: string;
   checkedIn: Date | null;
   checkedOut: Date | null;
@@ -64,7 +65,14 @@ interface VisitorReadRow {
 interface ScanEventReadRow {
   id: string;
   visitorId: string | null;
-  eventType: "pass_issued" | "check_in" | "check_out" | "pass_cancelled" | "scan_rejected";
+  eventType:
+    | "pass_issued"
+    | "scan_reviewed"
+    | "details_updated"
+    | "check_in"
+    | "check_out"
+    | "pass_cancelled"
+    | "scan_rejected";
   guardId: string | null;
   scannedAt: Date;
 }
@@ -89,7 +97,7 @@ function toPurpose(value: string): Purpose {
 }
 
 function toVisitType(value: string): VisitType {
-  return (VISIT_TYPES as readonly string[]).includes(value) ? (value as VisitType) : "guest";
+  return (VISIT_TYPES as readonly string[]).includes(value) ? (value as VisitType) : "visitor";
 }
 
 function toOwnerType(value: string | null): OwnerType | undefined {
@@ -153,6 +161,7 @@ function toVisit(row: VisitorReadRow, now: Date, overstayAllowedDays: number): V
     plate: row.vehicleNumber,
     visitorName: row.name,
     visitorContact: row.phoneNumber,
+    organisation: row.organisation ?? undefined,
     visitType: toVisitType(row.typeCode),
     purpose: toPurpose(row.purpose),
     purposeNotes: purposeNotes || undefined,
@@ -177,6 +186,7 @@ async function readVisitors() {
         v."id",
         v."name",
         v."phone_number" AS "phoneNumber",
+        v."organisation",
         v."vehicle_number" AS "vehicleNumber",
         v."checked_in" AS "checkedIn",
         v."checked_out" AS "checkedOut",
@@ -296,7 +306,12 @@ export async function getVisitAuditTrail(visitId: string): Promise<AuditEntry[]>
     correlationId: row.id,
     actorUserId: row.guardId ?? "system",
     actorRole: "parking",
-    actionType: row.eventType === "pass_issued" ? "CREATE" : row.eventType === "pass_cancelled" ? "UPDATE" : "SCAN",
+    actionType:
+      row.eventType === "pass_issued"
+        ? "CREATE"
+        : row.eventType === "pass_cancelled" || row.eventType === "details_updated"
+          ? "UPDATE"
+          : "SCAN",
     targetDoctype: "Parking Visit",
     targetRecordId: row.visitorId ?? undefined,
     result: row.eventType === "scan_rejected" ? "FAILURE" : "SUCCESS",

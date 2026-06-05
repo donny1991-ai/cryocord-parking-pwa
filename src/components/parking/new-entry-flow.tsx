@@ -5,7 +5,7 @@ import Link from "next/link";
 import { BadgeCheck, Check, CheckCircle2, Pencil, Send, ShieldCheck, Sparkles, X } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Input, Select, Field } from "@/components/ui/input";
+import { Input, Select, Field, Textarea } from "@/components/ui/input";
 import { Chip } from "@/components/ui/badge";
 import { PlateCapture } from "./plate-capture";
 import { QrPass } from "./qr-pass";
@@ -30,7 +30,8 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
 
   const [visitorName, setVisitorName] = useState("");
   const [visitorContact, setVisitorContact] = useState("");
-  const [visitType, setVisitType] = useState<VisitType>("guest");
+  const [organisation, setOrganisation] = useState("");
+  const [visitType, setVisitType] = useState<VisitType>("visitor");
   const [purpose, setPurpose] = useState<Purpose>("meeting");
   const [purposeNotes, setPurposeNotes] = useState("");
   const [hostStaffId, setHostStaffId] = useState("");
@@ -77,7 +78,11 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
     prefillKnownVehicle(nextPlate);
   }
 
-  const canIssue = plate && visitorName.trim() && visitorContact.trim() && (purpose !== "other" || purposeNotes.trim());
+  const canIssue =
+    plate &&
+    visitorName.trim() &&
+    visitorContact.trim() &&
+    ((visitType !== "other" && purpose !== "other") || purposeNotes.trim());
 
   async function issuePass() {
     if (!canIssue) return;
@@ -92,6 +97,7 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
         body: JSON.stringify({
           name: visitorName,
           phoneNumber: visitorContact,
+          organisation: organisation || undefined,
           vehicleNumber: plate,
           typeCode: visitType,
           purpose,
@@ -283,6 +289,14 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
           />
         </Field>
 
+        <Field label="Company / organisation">
+          <Input
+            value={organisation}
+            onChange={(e) => setOrganisation(e.target.value)}
+            placeholder="Company or organisation"
+          />
+        </Field>
+
         <div className="grid grid-cols-2 gap-3">
           <Field label="Visit type" required>
             <Select value={visitType} onChange={(e) => setVisitType(e.target.value as VisitType)}>
@@ -300,9 +314,13 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
           </Field>
         </div>
 
-        {(purpose === "other") && (
-          <Field label="Purpose notes" required hint="Required when purpose is Other.">
-            <Input value={purposeNotes} onChange={(e) => setPurposeNotes(e.target.value)} placeholder="Describe the purpose" />
+        {(visitType === "other" || purpose === "other") && (
+          <Field label="Notes / remarks" required hint="Required when visit type or purpose is Other.">
+            <Textarea
+              value={purposeNotes}
+              onChange={(e) => setPurposeNotes(e.target.value)}
+              placeholder="Add required details for Other"
+            />
           </Field>
         )}
 

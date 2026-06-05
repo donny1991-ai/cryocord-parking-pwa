@@ -5,20 +5,32 @@ import { getParkingDataSource } from "@/db/client";
 import { PURPOSES, type Purpose } from "@/lib/enums";
 import {
   assertQrSigningConfigured,
+  decodeVisitTokenReference,
   getPreRegistrationTokenExpiresAt,
   getVisitTokenExpiresAt,
   signVisitToken,
   verifyVisitToken,
+  type PassClaims,
 } from "@/lib/qr";
 import { normalisePlate } from "@/lib/utils";
 import { assertScanAction, resolveVisitorScanTransition, type ScanAction } from "./visitor-state";
+import type { EntityManager } from "typeorm";
 
-export type VisitorTypeCode = "guest" | "vendor" | "client" | "staff";
+export type VisitorTypeCode =
+  | "visitor"
+  | "vendor"
+  | "courier"
+  | "patient"
+  | "staff"
+  | "contractor"
+  | "vip"
+  | "other";
 export type { ScanAction } from "./visitor-state";
 
 export interface CreateVisitorInput {
   name: string;
   phoneNumber: string;
+  organisation?: string;
   vehicleNumber: string;
   typeCode: VisitorTypeCode;
   purpose?: Purpose;
@@ -35,6 +47,7 @@ export interface ScanVisitorInput {
   token: string;
   action?: ScanAction;
   guardId?: string;
+  details?: VisitorDetailsUpdateInput;
 }
 
 export interface CheckOutVisitorInput {
@@ -47,10 +60,35 @@ export interface CancelVisitorInput {
   guardId?: string;
 }
 
+export interface ReviewVisitorPassInput {
+  token: string;
+  guardId?: string;
+}
+
+export interface RejectVisitorPassInput {
+  token: string;
+  guardId?: string;
+  reason?: string;
+}
+
+export interface VisitorDetailsUpdateInput {
+  name?: string;
+  phoneNumber?: string;
+  organisation?: string | null;
+  vehicleNumber?: string;
+  typeCode?: VisitorTypeCode;
+  purpose?: Purpose;
+  remarks?: string | null;
+  hostStaffId?: string | null;
+  hostDepartment?: string | null;
+  flagReason?: string | null;
+}
+
 export interface VisitorDto {
   id: string;
   name: string;
   phoneNumber: string;
+  organisation: string | null;
   vehicleNumber: string;
   checkedIn: string | null;
   checkedOut: string | null;
@@ -65,6 +103,10 @@ export interface VisitorDto {
   createdAt: string;
   updatedAt: string;
 }
+
+type ResolvedPassClaims = PassClaims & {
+  verified: boolean;
+};
 
 export interface IssuedVisitorPass {
   visitor: VisitorDto;
@@ -92,6 +134,7 @@ function toDto(visitor: VisitorEntity): VisitorDto {
     id: visitor.id,
     name: visitor.name,
     phoneNumber: visitor.phoneNumber,
+    organisation: visitor.organisation,
     vehicleNumber: visitor.vehicleNumber,
     checkedIn: visitor.checkedIn?.toISOString() ?? null,
     checkedOut: visitor.checkedOut?.toISOString() ?? null,
@@ -108,11 +151,32 @@ function toDto(visitor: VisitorEntity): VisitorDto {
   };
 }
 
-function assertPurpose(value: unknown): Purpose {
+export function assertPurpose(value: unknown): Purpose {
+  if (value === undefined || value === null || value === "") {
+    return "other";
+  }
   if (typeof value === "string" && (PURPOSES as readonly string[]).includes(value)) {
     return value as Purpose;
   }
-  return "other";
+  throw new Error("Invalid purpose.");
+}
+
+function requiresRemarks(typeCode: VisitorTypeCode, purpose: Purpose) {
+  return typeCode === "other" || purpose === "other";
+}
+
+function assertRequiredRemarks(typeCode: VisitorTypeCode, purpose: Purpose, remarks: string | null | undefined) {
+  if (requiresRemarks(typeCode, purpose) && !remarks?.trim()) {
+    throw new Error("Notes are required when visit type or purpose is Other.");
+  }
+}
+
+async function getVisitorTypeByCodeOrThrow(manager: EntityManager, code: VisitorTypeCode) {
+  const type = await manager.findOneBy(VisitorTypeSchema, { code });
+  if (!type) {
+    throw new Error(`Visitor type reference data is missing for "${code}". Run database migrations.`);
+  }
+  return type;
 }
 
 function getVisitorPolicyExpiresAt(visitor: Pick<VisitorEntity, "visitDate" | "createdAt">, fallbackExpiresAt?: string) {
@@ -120,6 +184,155 @@ function getVisitorPolicyExpiresAt(visitor: Pick<VisitorEntity, "visitDate" | "c
     return getPreRegistrationTokenExpiresAt(visitor.visitDate);
   }
   return fallbackExpiresAt ? new Date(fallbackExpiresAt) : getVisitTokenExpiresAt(visitor.createdAt);
+}
+
+async function resolveVisitTokenReference(token: string): Promise<ResolvedPassClaims> {
+  try {
+    return {
+      ...(await verifyVisitToken(token, { ignoreExpiration: true })),
+      verified: true,
+    };
+  } catch {
+    return {
+      ...decodeVisitTokenReference(token),
+      verified: false,
+    };
+  }
+}
+
+function isVisitorTokenMatch(visitor: VisitorEntity, claims: ResolvedPassClaims) {
+  if (visitor.qrTokenJti) {
+    return claims.tokenId === visitor.qrTokenJti;
+  }
+
+  return claims.verified;
+}
+
+type VisitorDetailsChange = {
+  from: string | number | null;
+  to: string | number | null;
+};
+
+function normaliseNullable(value: string | null | undefined) {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed || null;
+}
+
+function setChangedValue(
+  changes: Record<string, VisitorDetailsChange>,
+  field: string,
+  current: string | number | null,
+  next: string | number | null,
+  apply: () => void,
+) {
+  if (current === next) return;
+  changes[field] = { from: current, to: next };
+  apply();
+}
+
+async function applyVisitorDetailsUpdate(
+  manager: EntityManager,
+  visitor: VisitorEntity,
+  details: VisitorDetailsUpdateInput | undefined,
+  guardId: string | undefined,
+) {
+  if (!details) return;
+
+  const changes: Record<string, VisitorDetailsChange> = {};
+
+  if (details.name !== undefined) {
+    const next = details.name.trim();
+    if (!next) throw new Error("Visitor name is required.");
+    setChangedValue(changes, "name", visitor.name, next, () => {
+      visitor.name = next;
+    });
+  }
+
+  if (details.phoneNumber !== undefined) {
+    const next = details.phoneNumber.trim();
+    if (!next) throw new Error("Contact number is required.");
+    setChangedValue(changes, "phoneNumber", visitor.phoneNumber, next, () => {
+      visitor.phoneNumber = next;
+    });
+  }
+
+  if (details.organisation !== undefined) {
+    const next = normaliseNullable(details.organisation);
+    setChangedValue(changes, "organisation", visitor.organisation, next, () => {
+      visitor.organisation = next;
+    });
+  }
+
+  if (details.vehicleNumber !== undefined) {
+    const next = details.vehicleNumber.trim().toUpperCase();
+    if (!next) throw new Error("Vehicle number is required.");
+    setChangedValue(changes, "vehicleNumber", visitor.vehicleNumber, next, () => {
+      visitor.vehicleNumber = next;
+      visitor.vehicleNumberNormalised = normalisePlate(next);
+    });
+  }
+
+  if (details.typeCode !== undefined) {
+    const typeCode = assertVisitorTypeCode(details.typeCode);
+    const type = await getVisitorTypeByCodeOrThrow(manager, typeCode);
+    setChangedValue(changes, "typeId", visitor.typeId, type.id, () => {
+      visitor.typeId = type.id;
+      visitor.type = type;
+    });
+  }
+
+  if (details.purpose !== undefined) {
+    const next = assertPurpose(details.purpose);
+    setChangedValue(changes, "purpose", visitor.purpose, next, () => {
+      visitor.purpose = next;
+    });
+  }
+
+  if (details.remarks !== undefined) {
+    const next = normaliseNullable(details.remarks);
+    setChangedValue(changes, "remarks", visitor.remarks, next, () => {
+      visitor.remarks = next;
+    });
+  }
+
+  if (details.hostStaffId !== undefined) {
+    const next = normaliseNullable(details.hostStaffId);
+    setChangedValue(changes, "hostStaffId", visitor.hostStaffId, next, () => {
+      visitor.hostStaffId = next;
+    });
+  }
+
+  if (details.hostDepartment !== undefined) {
+    const next = normaliseNullable(details.hostDepartment);
+    setChangedValue(changes, "hostDepartment", visitor.hostDepartment, next, () => {
+      visitor.hostDepartment = next;
+    });
+  }
+
+  if (details.flagReason !== undefined) {
+    const next = normaliseNullable(details.flagReason);
+    setChangedValue(changes, "flagReason", visitor.flagReason, next, () => {
+      visitor.flagReason = next;
+    });
+  }
+
+  const finalTypeCode =
+    details.typeCode ??
+    ((await manager.findOneByOrFail(VisitorTypeSchema, { id: visitor.typeId })).code as VisitorTypeCode);
+  assertRequiredRemarks(finalTypeCode, assertPurpose(visitor.purpose), visitor.remarks);
+
+  if (Object.keys(changes).length === 0) return;
+
+  await manager.save(VisitorSchema, visitor);
+  await manager.insert(VisitorScanEventSchema, {
+    visitorId: visitor.id,
+    eventType: "details_updated",
+    guardId: guardId?.trim() || null,
+    metadata: {
+      reason: "arrival_manual_verification",
+      changes,
+    },
+  });
 }
 
 export function assertVisitDate(value: unknown): string {
@@ -141,7 +354,16 @@ export function assertVisitDate(value: unknown): string {
 }
 
 export function assertVisitorTypeCode(value: unknown): VisitorTypeCode {
-  if (value === "guest" || value === "vendor" || value === "client" || value === "staff") {
+  if (
+    value === "visitor" ||
+    value === "vendor" ||
+    value === "courier" ||
+    value === "patient" ||
+    value === "staff" ||
+    value === "contractor" ||
+    value === "vip" ||
+    value === "other"
+  ) {
     return value;
   }
 
@@ -163,19 +385,23 @@ export async function createVisitorPass(input: CreateVisitorInput): Promise<Issu
   }
 
   const visitor = await ds.transaction(async (manager) => {
-    const type = await manager.findOneByOrFail(VisitorTypeSchema, { code: input.typeCode });
+    const type = await getVisitorTypeByCodeOrThrow(manager, input.typeCode);
+    const remarks = input.remarks?.trim() || null;
+    const purpose = assertPurpose(input.purpose);
+    assertRequiredRemarks(input.typeCode, purpose, remarks);
     const checkedInAt = input.checkInOnCreate ? new Date() : null;
     const created = manager.create(VisitorSchema, {
       name: input.name.trim(),
       phoneNumber: input.phoneNumber.trim(),
+      organisation: input.organisation?.trim() || null,
       vehicleNumber: input.vehicleNumber.trim().toUpperCase(),
       vehicleNumberNormalised: normalisePlate(input.vehicleNumber),
       checkedIn: checkedInAt,
       typeId: type.id,
       type,
-      purpose: assertPurpose(input.purpose),
+      purpose,
       visitDate,
-      remarks: input.remarks?.trim() || null,
+      remarks,
       hostStaffId: input.hostStaffId?.trim() || null,
       hostDepartment: input.hostDepartment?.trim() || null,
       flagReason: input.flagReason?.trim() || null,
@@ -217,7 +443,7 @@ export async function createVisitorPass(input: CreateVisitorInput): Promise<Issu
 export async function getPublicVisitorPass(token: string): Promise<PublicVisitorPass> {
   let claims;
   try {
-    claims = await verifyVisitToken(token);
+    claims = await resolveVisitTokenReference(token);
   } catch {
     return {
       state: "inactive",
@@ -229,7 +455,7 @@ export async function getPublicVisitorPass(token: string): Promise<PublicVisitor
   const ds = await getParkingDataSource();
   const visitor = await ds.manager.findOneBy(VisitorSchema, { id: claims.visitId });
 
-  if (!visitor || (claims.tokenId && visitor.qrTokenJti && claims.tokenId !== visitor.qrTokenJti)) {
+  if (!visitor || !isVisitorTokenMatch(visitor, claims)) {
     return {
       state: "inactive",
       title: "Pass unavailable",
@@ -275,13 +501,79 @@ export async function getPublicVisitorPass(token: string): Promise<PublicVisitor
   };
 }
 
-export async function scanVisitorPass(input: ScanVisitorInput): Promise<VisitorDto> {
-  const claims = await verifyVisitToken(input.token);
+type VisitorPassRejection = {
+  visitorId?: string;
+  reason:
+    | "visitor_not_found"
+    | "token_mismatch"
+    | "token_expired"
+    | "pass_cancelled"
+    | "already_checked_in"
+    | "already_checked_out";
+  message: string;
+};
+
+async function recordRejectedScan(
+  ds: Awaited<ReturnType<typeof getParkingDataSource>>,
+  rejected: VisitorPassRejection,
+  guardId: string | undefined,
+  metadata: Record<string, unknown> = {},
+) {
+  await ds.manager.insert(VisitorScanEventSchema, {
+    visitorId: rejected.visitorId,
+    eventType: "scan_rejected",
+    guardId: guardId?.trim() || null,
+    metadata: { reason: rejected.reason, ...metadata },
+  });
+}
+
+function getArrivalReviewRejection(
+  visitor: VisitorEntity,
+  policyExpiresAt: Date,
+  now: Date,
+): VisitorPassRejection | null {
+  if (visitor.status === "cancelled") {
+    return {
+      visitorId: visitor.id,
+      reason: "pass_cancelled",
+      message: "Visitor pass has been cancelled.",
+    };
+  }
+
+  if (visitor.status === "checked_in") {
+    return {
+      visitorId: visitor.id,
+      reason: "already_checked_in",
+      message: "Visitor has already checked in.",
+    };
+  }
+
+  if (visitor.status === "checked_out") {
+    return {
+      visitorId: visitor.id,
+      reason: "already_checked_out",
+      message: "Visitor has already checked out.",
+    };
+  }
+
+  if (policyExpiresAt <= now) {
+    return {
+      visitorId: visitor.id,
+      reason: "token_expired",
+      message: "Visitor pass has expired.",
+    };
+  }
+
+  return null;
+}
+
+export async function reviewVisitorPass(input: ReviewVisitorPassInput): Promise<VisitorDto> {
+  const claims = await resolveVisitTokenReference(input.token);
   const ds = await getParkingDataSource();
 
   const result = await ds.transaction<
     | { visitor: VisitorDto }
-    | { rejected: { visitorId?: string; reason: "visitor_not_found" | "token_mismatch" | "token_expired"; message: string } }
+    | { rejected: VisitorPassRejection }
   >(async (manager) => {
     const visitor = await manager.findOne(VisitorSchema, {
       where: { id: claims.visitId },
@@ -297,7 +589,127 @@ export async function scanVisitorPass(input: ScanVisitorInput): Promise<VisitorD
       };
     }
 
-    if (claims.tokenId && visitor.qrTokenJti && claims.tokenId !== visitor.qrTokenJti) {
+    if (!isVisitorTokenMatch(visitor, claims)) {
+      return {
+        rejected: {
+          visitorId: visitor.id,
+          reason: "token_mismatch",
+          message: "Visitor pass is not valid for this record.",
+        },
+      };
+    }
+
+    const rejection = getArrivalReviewRejection(visitor, getVisitorPolicyExpiresAt(visitor, claims.expiresAt), new Date());
+    if (rejection) return { rejected: rejection };
+
+    await manager.insert(VisitorScanEventSchema, {
+      visitorId: visitor.id,
+      eventType: "scan_reviewed",
+      guardId: input.guardId?.trim() || null,
+      metadata: { reason: "arrival_manual_verification" },
+    });
+
+    const refreshed = await manager.findOneOrFail(VisitorSchema, {
+      where: { id: visitor.id },
+      relations: { type: true },
+    });
+
+    return { visitor: toDto(refreshed) };
+  });
+
+  if ("rejected" in result) {
+    await recordRejectedScan(ds, result.rejected, input.guardId);
+    throw new Error(result.rejected.message);
+  }
+
+  return result.visitor;
+}
+
+export async function rejectVisitorPassScan(input: RejectVisitorPassInput): Promise<VisitorDto> {
+  const claims = await resolveVisitTokenReference(input.token);
+  const ds = await getParkingDataSource();
+  const manualReason = input.reason?.trim() || "Rejected during arrival manual verification.";
+
+  const result = await ds.transaction<
+    | { visitor: VisitorDto; visitorId: string }
+    | { rejected: VisitorPassRejection }
+  >(async (manager) => {
+    const visitor = await manager.findOne(VisitorSchema, {
+      where: { id: claims.visitId },
+      lock: { mode: "pessimistic_write" },
+    });
+
+    if (!visitor) {
+      return {
+        rejected: {
+          reason: "visitor_not_found",
+          message: "Visitor pass not found.",
+        },
+      };
+    }
+
+    if (!isVisitorTokenMatch(visitor, claims)) {
+      return {
+        rejected: {
+          visitorId: visitor.id,
+          reason: "token_mismatch",
+          message: "Visitor pass is not valid for this record.",
+        },
+      };
+    }
+
+    const rejection = getArrivalReviewRejection(visitor, getVisitorPolicyExpiresAt(visitor, claims.expiresAt), new Date());
+    if (rejection) return { rejected: rejection };
+
+    await manager.insert(VisitorScanEventSchema, {
+      visitorId: visitor.id,
+      eventType: "scan_rejected",
+      guardId: input.guardId?.trim() || null,
+      metadata: {
+        reason: "manual_rejection",
+        manualReason,
+      },
+    });
+
+    const refreshed = await manager.findOneOrFail(VisitorSchema, {
+      where: { id: visitor.id },
+      relations: { type: true },
+    });
+
+    return { visitor: toDto(refreshed), visitorId: visitor.id };
+  });
+
+  if ("rejected" in result) {
+    await recordRejectedScan(ds, result.rejected, input.guardId);
+    throw new Error(result.rejected.message);
+  }
+
+  return result.visitor;
+}
+
+export async function scanVisitorPass(input: ScanVisitorInput): Promise<VisitorDto> {
+  const claims = await resolveVisitTokenReference(input.token);
+  const ds = await getParkingDataSource();
+
+  const result = await ds.transaction<
+    | { visitor: VisitorDto }
+    | { rejected: VisitorPassRejection }
+  >(async (manager) => {
+    const visitor = await manager.findOne(VisitorSchema, {
+      where: { id: claims.visitId },
+      lock: { mode: "pessimistic_write" },
+    });
+
+    if (!visitor) {
+      return {
+        rejected: {
+          reason: "visitor_not_found",
+          message: "Visitor pass not found.",
+        },
+      };
+    }
+
+    if (!isVisitorTokenMatch(visitor, claims)) {
       return {
         rejected: {
           visitorId: visitor.id,
@@ -321,6 +733,10 @@ export async function scanVisitorPass(input: ScanVisitorInput): Promise<VisitorD
     }
 
     const transition = resolveVisitorScanTransition(visitor, action, now);
+
+    if (transition.eventType === "check_in") {
+      await applyVisitorDetailsUpdate(manager, visitor, input.details, input.guardId);
+    }
 
     if (transition.eventType === "check_in") {
       visitor.checkedIn = transition.checkedIn;
@@ -349,12 +765,7 @@ export async function scanVisitorPass(input: ScanVisitorInput): Promise<VisitorD
   });
 
   if ("rejected" in result) {
-    await ds.manager.insert(VisitorScanEventSchema, {
-      visitorId: result.rejected.visitorId,
-      eventType: "scan_rejected",
-      guardId: input.guardId?.trim() || null,
-      metadata: { reason: result.rejected.reason },
-    });
+    await recordRejectedScan(ds, result.rejected, input.guardId);
     throw new Error(result.rejected.message);
   }
 

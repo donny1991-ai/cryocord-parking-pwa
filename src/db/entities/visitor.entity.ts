@@ -7,6 +7,7 @@ export interface VisitorEntity {
   id: string;
   name: string;
   phoneNumber: string;
+  organisation: string | null;
   vehicleNumber: string;
   vehicleNumberNormalised: string;
   checkedIn: Date | null;
@@ -48,6 +49,11 @@ export const VisitorSchema = new EntitySchema<VisitorEntity>({
       name: "phone_number",
       type: String,
       length: 40,
+    },
+    organisation: {
+      type: String,
+      length: 160,
+      nullable: true,
     },
     vehicleNumber: {
       name: "vehicle_number",

@@ -41,6 +41,7 @@ async function getInitialValues(fromVisit?: string): Promise<PreRegisterInitialV
     plate: visit.plate,
     visitorName: visit.visitorName,
     visitorContact: visit.visitorContact,
+    organisation: visit.organisation,
     visitType: visit.visitType,
     purpose: visit.purpose,
     purposeNotes: visit.purposeNotes,
