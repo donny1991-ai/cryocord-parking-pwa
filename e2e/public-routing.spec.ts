@@ -16,9 +16,12 @@ test.describe("public and protected routing", () => {
     const sendCode = page.getByRole("button", { name: "Send code" });
 
     await expect(email).toBeVisible();
+    await expect(email).toBeEditable();
     await expect(sendCode).toBeDisabled();
 
-    await email.fill("guard@example.com");
+    await email.click();
+    await email.pressSequentially("guard@example.com");
+    await expect(email).toHaveValue("guard@example.com");
     await expect(sendCode).toBeEnabled();
   });
 

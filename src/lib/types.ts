@@ -17,20 +17,43 @@ export interface Vehicle {
 }
 
 /** parking.visits — `plate` is denormalised for audit immutability. */
+export interface VisitVehicle {
+  id: string;
+  plate: string;
+  isPrimary: boolean;
+  status: "pending" | "checked_in" | "checked_out" | "cancelled" | "rejected";
+  checkedIn?: string;
+  checkedOut?: string;
+  checkedInBy?: string;
+  checkedOutBy?: string;
+}
+
 export interface Visit {
   id: string;
   vehicleId?: string;
   plate: string;
+  additionalPlates?: string[];
+  vehicles?: VisitVehicle[];
+  activeVehicleNumber?: string;
+  registrationPlate?: string;
+  registrationVehicleCount?: number;
+  registrationVehicleRole?: "primary" | "linked";
   visitorName: string;
   visitorContact: string;
   organisation?: string;
-  visitorIc?: string; // PDPA-sensitive, optional, off by default
+  identityType?: "nric" | "passport";
+  nric?: string;
+  passportNumber?: string;
+  visitorIc?: string; // Legacy alias for NRIC.
   visitType: VisitType;
   purpose: Purpose;
   purposeNotes?: string;
   visitDate?: string;
+  visitTime?: string;
+  visitorCount?: number;
   hostStaffId?: string;
   hostDepartment?: string;
+  host?: Employee;
   flagReason?: string;
   entryTime: string;
   entryGuardId: string;
@@ -71,4 +94,7 @@ export interface Employee {
   staffId: string;
   name: string;
   department: string;
+  phone?: string;
+  extension?: string;
+  email?: string;
 }

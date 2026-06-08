@@ -8,15 +8,24 @@ import {
 } from "@/app/api/admin/visitors/[id]/flag/route";
 import { POST as cancelVisitorEndpoint } from "@/app/api/visitors/[id]/cancel/route";
 import { AppDataSource } from "@/db/data-source";
-import { VisitorScanEventSchema, VisitorSchema } from "@/db/entities";
+import { VisitorScanEventSchema, VisitorSchema, VisitorVehicleSchema } from "@/db/entities";
 import { createVisitorInputFactory } from "@/test/factories/visitor.factory";
 import { refreshParkingTestDatabase } from "@/test/refresh-database";
+import { seedHrHost } from "@/test/seeders/hr-host.seeder";
 import { seedParkingUser } from "@/test/seeders/parking-user.seeder";
 import { seedVisitorTypes } from "@/test/seeders/visitor-type.seeder";
 import { signTestSupabaseAccessToken } from "@/test/auth-token";
 import { getPreRegistrationTokenExpiresAt, signVisitToken } from "@/lib/qr";
 import { getParkingSnapshot, getVisitById } from "./parking-data";
-import { createVisitorPass, getPublicVisitorPass, rejectVisitorPassScan, reviewVisitorPass, scanVisitorPass } from "./visitors";
+import { getHostDirectory } from "./hosts";
+import {
+  createVisitorPass,
+  getPublicVisitorPass,
+  rejectVisitorPassScan,
+  reviewVisitorPass,
+  reviewVisitorPassForExit,
+  scanVisitorPass,
+} from "./visitors";
 
 function jsonRequest(path: string, body: unknown, token?: string, method = "POST") {
   return new NextRequest(`http://localhost${path}`, {
@@ -41,6 +50,11 @@ function futureVisitDate(daysFromNow = 30) {
   date.setDate(date.getDate() + daysFromNow);
   date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
   return date.toISOString().slice(0, 10);
+}
+
+function tamperedHs256VisitToken(payload: Record<string, unknown>) {
+  const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  return `${encode({ alg: "HS256", kid: "old" })}.${encode(payload)}.tampered`;
 }
 
 describe("visitor pass database flow", () => {
@@ -68,6 +82,8 @@ describe("visitor pass database flow", () => {
       organisation: "  CryoCord Test Partner  ",
       vehicleNumber: "  wa 18-k  ",
       typeCode: "visitor",
+      visitTime: "09:30",
+      visitorCount: 3,
       remarks: "  integration test visitor  ",
     });
 
@@ -84,6 +100,8 @@ describe("visitor pass database flow", () => {
       status: "pending",
       checkedIn: null,
       checkedOut: null,
+      visitTime: "09:30",
+      visitorCount: 3,
       remarks: "integration test visitor",
     });
 
@@ -113,6 +131,420 @@ describe("visitor pass database flow", () => {
     expect(scanEvents).toBe(3);
   });
 
+  it("stores additional vehicle plates on one visitor registration", async () => {
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({
+        vehicleNumber: "MAIN 100",
+        additionalVehicleNumbers: ["ALT 101", "main-100", "alt-101", "ALT 102"],
+        typeCode: "visitor",
+        visitDate: futureVisitDate(),
+      }),
+    );
+
+    expect(issued.visitor.additionalVehicleNumbers).toEqual(["ALT 101", "ALT 102"]);
+
+    const visitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: issued.visitor.id });
+    expect(visitor.additionalVehicleNumbers).toEqual(["ALT 101", "ALT 102"]);
+
+    await expect(getVisitById(issued.visitor.id)).resolves.toMatchObject({
+      plate: "MAIN 100",
+      additionalPlates: ["ALT 101", "ALT 102"],
+    });
+  });
+
+  it("resolves host contact details from HR public users for guard confirmation", async () => {
+    const host = await seedHrHost(AppDataSource.manager, {
+      empNo: "CCSB0698",
+      name: "Aina Host",
+      department: "AI Projects Lab",
+      phone: "0191112222",
+      extension: "808",
+    });
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({
+        vehicleNumber: "HOST 100",
+        typeCode: "visitor",
+        hostStaffId: host.staffId,
+        hostDepartment: "",
+      }),
+    );
+
+    await expect(getHostDirectory()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          staffId: "CCSB0698",
+          name: "Aina Host",
+          department: "AI Projects Lab",
+          phone: "0191112222",
+          extension: "808",
+        }),
+      ]),
+    );
+    await expect(getVisitById(issued.visitor.id)).resolves.toMatchObject({
+      hostStaffId: "CCSB0698",
+      hostDepartment: "AI Projects Lab",
+      host: {
+        staffId: "CCSB0698",
+        name: "Aina Host",
+        department: "AI Projects Lab",
+        phone: "0191112222",
+        extension: "808",
+      },
+    });
+
+    const reviewed = await reviewVisitorPass({ token: issued.token, guardId: "guard-host-review" });
+    expect(reviewed).toMatchObject({
+      hostStaffId: "CCSB0698",
+      hostDepartment: "AI Projects Lab",
+      host: {
+        staffId: "CCSB0698",
+        name: "Aina Host",
+        department: "AI Projects Lab",
+        phone: "0191112222",
+        extension: "808",
+      },
+    });
+  });
+
+  it("tracks staggered check-in and check-out per vehicle under one registration", async () => {
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({
+        vehicleNumber: "CAR A",
+        additionalVehicleNumbers: ["CAR B", "CAR C"],
+        typeCode: "visitor",
+        visitDate: futureVisitDate(),
+      }),
+    );
+
+    const carBIn = await scanVisitorPass({
+      token: issued.token,
+      action: "check_in",
+      vehicleNumber: "CAR B",
+      guardId: "guard-b-in",
+    });
+    expect(carBIn).toMatchObject({
+      status: "checked_in",
+      activeVehicleNumber: "CAR B",
+      vehicles: [
+        expect.objectContaining({ vehicleNumber: "CAR A", status: "pending" }),
+        expect.objectContaining({ vehicleNumber: "CAR B", status: "checked_in", checkedInBy: "guard-b-in" }),
+        expect.objectContaining({ vehicleNumber: "CAR C", status: "pending" }),
+      ],
+    });
+
+    const carAIn = await scanVisitorPass({
+      token: issued.token,
+      action: "check_in",
+      vehicleNumber: "CAR A",
+      guardId: "guard-a-in",
+    });
+    expect(carAIn.vehicles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ vehicleNumber: "CAR A", status: "checked_in", checkedInBy: "guard-a-in" }),
+        expect.objectContaining({ vehicleNumber: "CAR B", status: "checked_in", checkedInBy: "guard-b-in" }),
+        expect.objectContaining({ vehicleNumber: "CAR C", status: "pending" }),
+      ]),
+    );
+
+    const carBOut = await scanVisitorPass({
+      token: issued.token,
+      action: "check_out",
+      vehicleNumber: "CAR B",
+      guardId: "guard-b-out",
+    });
+    expect(carBOut).toMatchObject({
+      status: "checked_in",
+      activeVehicleNumber: "CAR A",
+    });
+    expect(carBOut.vehicles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ vehicleNumber: "CAR A", status: "checked_in" }),
+        expect.objectContaining({ vehicleNumber: "CAR B", status: "checked_out", checkedOutBy: "guard-b-out" }),
+        expect.objectContaining({ vehicleNumber: "CAR C", status: "pending" }),
+      ]),
+    );
+
+    const partialSnapshot = await getParkingSnapshot();
+    const partialLogRows = partialSnapshot.logVisits.filter((visit) => visit.id === issued.visitor.id);
+    expect(partialLogRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          plate: "CAR A",
+          status: "inside",
+          registrationPlate: "CAR A",
+          registrationVehicleRole: "primary",
+        }),
+        expect.objectContaining({
+          plate: "CAR B",
+          status: "exited",
+          registrationPlate: "CAR A",
+          registrationVehicleCount: 3,
+          registrationVehicleRole: "linked",
+        }),
+        expect.objectContaining({
+          plate: "CAR C",
+          status: "pending",
+          registrationPlate: "CAR A",
+          registrationVehicleRole: "linked",
+        }),
+      ]),
+    );
+
+    const carAOut = await scanVisitorPass({
+      token: issued.token,
+      action: "check_out",
+      vehicleNumber: "CAR A",
+      guardId: "guard-a-out",
+    });
+    expect(carAOut).toMatchObject({
+      status: "pending",
+      checkedIn: null,
+      checkedOut: null,
+      activeVehicleNumber: null,
+    });
+    expect(carAOut.vehicles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ vehicleNumber: "CAR A", status: "checked_out", checkedOutBy: "guard-a-out" }),
+        expect.objectContaining({ vehicleNumber: "CAR B", status: "checked_out", checkedOutBy: "guard-b-out" }),
+        expect.objectContaining({ vehicleNumber: "CAR C", status: "pending" }),
+      ]),
+    );
+
+    const rows = await AppDataSource.manager.find(VisitorVehicleSchema, {
+      where: { visitorId: issued.visitor.id },
+    });
+    expect(rows).toHaveLength(3);
+
+    await expect(getVisitById(issued.visitor.id)).resolves.toMatchObject({
+      plate: "CAR A",
+      status: "pending",
+      vehicles: expect.arrayContaining([
+        expect.objectContaining({ plate: "CAR A", status: "checked_out" }),
+        expect.objectContaining({ plate: "CAR B", status: "checked_out" }),
+        expect.objectContaining({ plate: "CAR C", status: "pending" }),
+      ]),
+    });
+
+    const snapshot = await getParkingSnapshot();
+    const registrationLogRows = snapshot.logVisits.filter((visit) => visit.id === issued.visitor.id);
+    expect(registrationLogRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          plate: "CAR A",
+          status: "exited",
+          registrationPlate: "CAR A",
+          registrationVehicleCount: 3,
+          registrationVehicleRole: "primary",
+        }),
+        expect.objectContaining({
+          plate: "CAR B",
+          status: "exited",
+          registrationPlate: "CAR A",
+          registrationVehicleCount: 3,
+          registrationVehicleRole: "linked",
+        }),
+        expect.objectContaining({
+          plate: "CAR C",
+          status: "pending",
+          registrationPlate: "CAR A",
+          registrationVehicleCount: 3,
+          registrationVehicleRole: "linked",
+        }),
+      ]),
+    );
+  });
+
+  it("allows the same QR to be reviewed again while linked vehicles are still pending", async () => {
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({
+        vehicleNumber: "SEQ A",
+        additionalVehicleNumbers: ["SEQ B", "SEQ C"],
+        typeCode: "visitor",
+        visitDate: futureVisitDate(),
+      }),
+    );
+
+    await scanVisitorPass({
+      token: issued.token,
+      action: "check_in",
+      vehicleNumber: "SEQ B",
+      guardId: "guard-b-in",
+    });
+
+    const reviewed = await reviewVisitorPass({ token: issued.token, guardId: "guard-review-a" });
+
+    expect(reviewed).toMatchObject({
+      id: issued.visitor.id,
+      status: "checked_in",
+      activeVehicleNumber: "SEQ B",
+      vehicles: [
+        expect.objectContaining({ vehicleNumber: "SEQ A", status: "pending" }),
+        expect.objectContaining({ vehicleNumber: "SEQ B", status: "checked_in" }),
+        expect.objectContaining({ vehicleNumber: "SEQ C", status: "pending" }),
+      ],
+    });
+
+    const checkedInA = await scanVisitorPass({
+      token: issued.token,
+      action: "check_in",
+      vehicleNumber: "SEQ A",
+      guardId: "guard-a-in",
+    });
+    expect(checkedInA.vehicles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ vehicleNumber: "SEQ A", status: "checked_in" }),
+        expect.objectContaining({ vehicleNumber: "SEQ B", status: "checked_in" }),
+        expect.objectContaining({ vehicleNumber: "SEQ C", status: "pending" }),
+      ]),
+    );
+  });
+
+  it("reviews a QR for exit and returns active linked vehicles before checkout", async () => {
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({
+        vehicleNumber: "OUT A",
+        additionalVehicleNumbers: ["OUT B", "OUT C"],
+        typeCode: "visitor",
+        visitDate: futureVisitDate(),
+      }),
+    );
+
+    await scanVisitorPass({
+      token: issued.token,
+      action: "check_in",
+      vehicleNumber: "OUT A",
+      guardId: "guard-a-in",
+    });
+    await scanVisitorPass({
+      token: issued.token,
+      action: "check_in",
+      vehicleNumber: "OUT B",
+      guardId: "guard-b-in",
+    });
+
+    const reviewed = await reviewVisitorPassForExit({ token: issued.token, guardId: "guard-exit-review" });
+    expect(reviewed.vehicles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ vehicleNumber: "OUT A", status: "checked_in" }),
+        expect.objectContaining({ vehicleNumber: "OUT B", status: "checked_in" }),
+        expect.objectContaining({ vehicleNumber: "OUT C", status: "pending" }),
+      ]),
+    );
+
+    await expect(scanVisitorPass({ token: issued.token, action: "check_out" })).rejects.toThrow(
+      "Select a vehicle to check out.",
+    );
+
+    const checkedOut = await scanVisitorPass({
+      token: issued.token,
+      action: "check_out",
+      vehicleNumber: "OUT B",
+      guardId: "guard-b-out",
+    });
+    expect(checkedOut.vehicles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ vehicleNumber: "OUT A", status: "checked_in" }),
+        expect.objectContaining({ vehicleNumber: "OUT B", status: "checked_out", checkedOutBy: "guard-b-out" }),
+        expect.objectContaining({ vehicleNumber: "OUT C", status: "pending" }),
+      ]),
+    );
+  });
+
+  it("reviews a single active vehicle QR for exit", async () => {
+    const issued = await createVisitorPass(createVisitorInputFactory({ vehicleNumber: "SOLO OUT", typeCode: "visitor" }));
+
+    await scanVisitorPass({ token: issued.token, action: "check_in", guardId: "guard-in" });
+
+    const reviewed = await reviewVisitorPassForExit({ token: issued.token, guardId: "guard-exit-review" });
+    expect(reviewed).toMatchObject({
+      vehicleNumber: "SOLO OUT",
+      status: "checked_in",
+      vehicles: [expect.objectContaining({ vehicleNumber: "SOLO OUT", status: "checked_in" })],
+    });
+
+    const checkedOut = await scanVisitorPass({ token: issued.token, action: "check_out", guardId: "guard-out" });
+    expect(checkedOut).toMatchObject({
+      vehicleNumber: "SOLO OUT",
+      status: "checked_out",
+      checkedOut: expect.any(String),
+    });
+  });
+
+  it("syncs HR-provided additional plates into vehicle decisions during QR review", async () => {
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({
+        vehicleNumber: "HR MAIN",
+        typeCode: "visitor",
+        visitDate: futureVisitDate(),
+      }),
+    );
+    const visitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: issued.visitor.id });
+    visitor.additionalVehicleNumbers = ["HR 2", "HR 3"];
+    await AppDataSource.manager.save(VisitorSchema, visitor);
+
+    const reviewed = await reviewVisitorPass({ token: issued.token, guardId: "guard-review" });
+
+    expect(reviewed).toMatchObject({
+      vehicleNumber: "HR MAIN",
+      additionalVehicleNumbers: ["HR 2", "HR 3"],
+      vehicles: [
+        expect.objectContaining({ vehicleNumber: "HR MAIN", status: "pending", isPrimary: true }),
+        expect.objectContaining({ vehicleNumber: "HR 2", status: "pending", isPrimary: false }),
+        expect.objectContaining({ vehicleNumber: "HR 3", status: "pending", isPrimary: false }),
+      ],
+    });
+  });
+
+  it("rejects one vehicle arrival while keeping linked vehicles available", async () => {
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({
+        vehicleNumber: "RJ A",
+        additionalVehicleNumbers: ["RJ B"],
+        typeCode: "visitor",
+        visitDate: futureVisitDate(),
+      }),
+    );
+
+    const rejected = await rejectVisitorPassScan({
+      token: issued.token,
+      vehicleNumber: "RJ B",
+      guardId: "guard-reject",
+      reason: "Vehicle did not match security instruction.",
+    });
+
+    expect(rejected).toMatchObject({
+      status: "pending",
+      vehicles: [
+        expect.objectContaining({ vehicleNumber: "RJ A", status: "pending" }),
+        expect.objectContaining({ vehicleNumber: "RJ B", status: "rejected" }),
+      ],
+    });
+
+    const approved = await scanVisitorPass({
+      token: issued.token,
+      action: "check_in",
+      vehicleNumber: "RJ A",
+      guardId: "guard-approve",
+    });
+    expect(approved).toMatchObject({
+      status: "checked_in",
+      activeVehicleNumber: "RJ A",
+      vehicles: [
+        expect.objectContaining({ vehicleNumber: "RJ A", status: "checked_in" }),
+        expect.objectContaining({ vehicleNumber: "RJ B", status: "rejected" }),
+      ],
+    });
+
+    const rejectEvent = await AppDataSource.manager.findOneByOrFail(VisitorScanEventSchema, {
+      visitorId: issued.visitor.id,
+      eventType: "scan_rejected",
+    });
+    expect(rejectEvent.metadata).toMatchObject({
+      reason: "manual_rejection",
+      vehicleNumber: "RJ B",
+    });
+  });
+
   it("honours explicit check-in and check-out actions", async () => {
     const issued = await createVisitorPass(createVisitorInputFactory({ typeCode: "staff" }));
 
@@ -127,7 +559,7 @@ describe("visitor pass database flow", () => {
     const issued = await createVisitorPass(createVisitorInputFactory({ typeCode: "vendor" }));
 
     await expect(scanVisitorPass({ token: issued.token, action: "check_out" })).rejects.toThrow(
-      "Visitor must check in before check-out.",
+      "Vehicle must check in before check-out.",
     );
 
     const visitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: issued.visitor.id });
@@ -141,7 +573,7 @@ describe("visitor pass database flow", () => {
     await scanVisitorPass({ token: issued.token, action: "check_in" });
 
     await expect(scanVisitorPass({ token: issued.token, action: "check_in" })).rejects.toThrow(
-      "Visitor has already checked in.",
+      "Vehicle has already checked in.",
     );
 
     const checkInEvents = await AppDataSource.manager.count(VisitorScanEventSchema, {
@@ -156,7 +588,7 @@ describe("visitor pass database flow", () => {
     await scanVisitorPass({ token: issued.token, action: "auto" });
 
     await expect(scanVisitorPass({ token: issued.token, action: "auto" })).rejects.toThrow(
-      "Visitor has already checked out.",
+      "Vehicle has already checked out.",
     );
   });
 
@@ -342,27 +774,86 @@ describe("visitor pass database flow", () => {
     ).rejects.toThrow();
   });
 
-  it("requires notes when visit type or purpose is Other", async () => {
+  it("requires remarks when visit type or purpose is Other", async () => {
     await expect(
-      createVisitorPass(createVisitorInputFactory({ typeCode: "other", purpose: "meeting", remarks: "" })),
-    ).rejects.toThrow("Notes are required when visit type or purpose is Other.");
+      createVisitorPass(
+        createVisitorInputFactory({
+          typeCode: "other",
+          purpose: "meeting",
+          remarks: "",
+        }),
+      ),
+    ).rejects.toThrow("Remarks are required when visit type or purpose is Other.");
 
     await expect(
-      createVisitorPass(createVisitorInputFactory({ typeCode: "visitor", purpose: "other", remarks: "" })),
-    ).rejects.toThrow("Notes are required when visit type or purpose is Other.");
+      createVisitorPass(
+        createVisitorInputFactory({
+          typeCode: "visitor",
+          purpose: "other",
+          remarks: "",
+        }),
+      ),
+    ).rejects.toThrow("Remarks are required when visit type or purpose is Other.");
+  });
 
+  it("requires a valid Malaysian NRIC when NRIC identity is selected", async () => {
+    await expect(
+      createVisitorPass(
+        createVisitorInputFactory({
+          identityType: "nric",
+          nric: "990230-14-1234",
+        }),
+      ),
+    ).rejects.toThrow("NRIC must be a valid Malaysian NRIC number.");
+
+    await expect(
+      createVisitorPass(
+        createVisitorInputFactory({
+          identityType: "nric",
+          nric: "900101-17-1234",
+        }),
+      ),
+    ).rejects.toThrow("NRIC must be a valid Malaysian NRIC number.");
+  });
+
+  it("requires either NRIC or passport when creating a visitor pass", async () => {
+    await expect(
+      createVisitorPass(
+        createVisitorInputFactory({
+          identityType: undefined,
+          nric: null,
+          passportNumber: null,
+        }),
+      ),
+    ).rejects.toThrow("Identity document is required.");
+  });
+
+  it("allows passport identity when NRIC is not provided", async () => {
     const issued = await createVisitorPass(
       createVisitorInputFactory({
-        typeCode: "other",
-        purpose: "other",
-        remarks: "Walk-in exception approved by supervisor.",
+        identityType: "passport",
+        nric: null,
+        passportNumber: "a1234567",
       }),
     );
+
     expect(issued.visitor).toMatchObject({
-      typeCode: "other",
-      purpose: "other",
-      remarks: "Walk-in exception approved by supervisor.",
+      identityType: "passport",
+      nric: null,
+      passportNumber: "A1234567",
     });
+  });
+
+  it("rejects all-letter passport numbers", async () => {
+    await expect(
+      createVisitorPass(
+        createVisitorInputFactory({
+          identityType: "passport",
+          nric: null,
+          passportNumber: "ASDQWEAASD",
+        }),
+      ),
+    ).rejects.toThrow("Passport number must contain 5 to 20 letters or digits and include at least one number.");
   });
 
   it("rejects forged tokens with mismatched token id", async () => {
@@ -372,6 +863,28 @@ describe("visitor pass database flow", () => {
     await expect(scanVisitorPass({ token: forged, action: "auto" })).rejects.toThrow(
       "Visitor pass is not valid for this record.",
     );
+
+    const rejectedEvents = await AppDataSource.manager.count(VisitorScanEventSchema, {
+      where: { eventType: "scan_rejected" },
+    });
+    expect(rejectedEvents).toBe(1);
+  });
+
+  it("does not trust tampered token expiry when the DB token id matches", async () => {
+    const issued = await createVisitorPass(createVisitorInputFactory({ typeCode: "vendor" }));
+    const visitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: issued.visitor.id });
+    await AppDataSource.manager.query(
+      `UPDATE "parking"."visitors" SET "created_at" = $1 WHERE "id" = $2`,
+      [new Date(Date.now() - 3 * 24 * 60 * 60 * 1000), issued.visitor.id],
+    );
+    const forged = tamperedHs256VisitToken({
+      visitId: issued.visitor.id,
+      jti: visitor.qrTokenJti,
+      iss: "cryocord-parking",
+      exp: Math.floor(Date.now() / 1000) + 60 * 60,
+    });
+
+    await expect(scanVisitorPass({ token: forged, action: "auto" })).rejects.toThrow("Visitor pass has expired.");
 
     const rejectedEvents = await AppDataSource.manager.count(VisitorScanEventSchema, {
       where: { eventType: "scan_rejected" },
@@ -498,10 +1011,14 @@ describe("visitor pass database flow", () => {
         {
           name: "Visitor11",
           phoneNumber: "0196776100",
+          identityType: "nric",
+          nric: "900101-14-1234",
           vehicleNumber: "TEZ 1234",
           typeCode: "other",
           purpose: "sample_delivery",
           visitDate,
+          visitTime: "13:45",
+          visitorCount: 6,
           remarks: "Testing other remarks",
           checkInOnCreate: false,
         },
@@ -516,9 +1033,15 @@ describe("visitor pass database flow", () => {
       visitor: {
         name: "Visitor11",
         phoneNumber: "0196776100",
+        identityType: "nric",
+        nric: "900101-14-1234",
+        passportNumber: null,
         vehicleNumber: "TEZ 1234",
         typeCode: "other",
         purpose: "sample_delivery",
+        visitDate,
+        visitTime: "13:45",
+        visitorCount: 6,
         remarks: "Testing other remarks",
         status: "pending",
         checkedIn: null,
@@ -624,6 +1147,7 @@ describe("visitor pass database flow", () => {
           ...createVisitorInputFactory({
             name: "Pre Registered Visitor",
             vehicleNumber: "PRE 4321",
+            additionalVehicleNumbers: ["PRE 4322"],
             typeCode: "visitor",
           }),
           visitDate,
@@ -647,6 +1171,7 @@ describe("visitor pass database flow", () => {
     await expect(arrivalResponse.json()).resolves.toMatchObject({
       visitor: {
         vehicleNumber: "PRE 4321",
+        additionalVehicleNumbers: ["PRE 4322"],
         status: "checked_in",
         checkedIn: expect.any(String),
       },
@@ -723,7 +1248,11 @@ describe("visitor pass database flow", () => {
             name: "Corrected Name",
             phoneNumber: "+60 12 222 2222",
             organisation: "Corrected Sdn Bhd",
+            identityType: "nric",
+            nric: "900101-14-2222",
+            passportNumber: null,
             vehicleNumber: "OK 200",
+            additionalVehicleNumbers: ["OK 201", "TYPO 100"],
             typeCode: "vendor",
             purpose: "delivery",
             remarks: "Plate corrected at gate.",
@@ -740,6 +1269,7 @@ describe("visitor pass database flow", () => {
         phoneNumber: "+60 12 222 2222",
         organisation: "Corrected Sdn Bhd",
         vehicleNumber: "OK 200",
+        additionalVehicleNumbers: ["OK 201", "TYPO 100"],
         typeCode: "vendor",
         purpose: "delivery",
         remarks: "Plate corrected at gate.",
@@ -753,8 +1283,12 @@ describe("visitor pass database flow", () => {
       name: "Corrected Name",
       phoneNumber: "+60 12 222 2222",
       organisation: "Corrected Sdn Bhd",
+      identityType: "nric",
+      nric: "900101-14-2222",
+      passportNumber: null,
       vehicleNumber: "OK 200",
       vehicleNumberNormalised: "OK200",
+      additionalVehicleNumbers: ["OK 201", "TYPO 100"],
       status: "checked_in",
       checkedInBy: guard.id,
     });
@@ -769,7 +1303,16 @@ describe("visitor pass database flow", () => {
       changes: {
         name: { from: "Typo Name", to: "Corrected Name" },
         organisation: { from: expect.any(String), to: "Corrected Sdn Bhd" },
+        nric: { from: expect.any(String), to: "900101-14-2222" },
         vehicleNumber: { from: "TYPO 100", to: "OK 200" },
+        additionalVehicleNumbers: { from: null, to: "OK 201, TYPO 100" },
+      },
+      identityDocument: {
+        changedBy: guard.id,
+        changedAt: expect.any(String),
+        changes: {
+          nric: { from: expect.any(String), to: "900101-14-2222" },
+        },
       },
     });
 

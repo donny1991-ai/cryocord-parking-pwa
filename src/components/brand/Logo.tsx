@@ -1,19 +1,12 @@
+import Image from "next/image";
 import { cn } from "@/lib/utils";
 
-const CORD_GREY = "#808184";
+const LOGO_SRC = "/brand/cryocord-icon.png";
 
-/**
- * CryoCord "cell & gene" brand lockup: red swirl mark + lowercase wordmark
- * (cryo = brand red, cord = grey) + "cell & gene" tagline.
- *
- * This is a faithful inline-SVG recreation of the supplied brand artwork. For
- * pixel-perfect fidelity (ICS branding AC), drop the official vector at
- * public/brand/cryocord.svg and point CryoMark/this component at it.
- */
 export function Logo({
   className,
-  showWordmark = true,
-  showTagline = true,
+  showWordmark = false,
+  showTagline = false,
   inverse = false,
   size = 28,
 }: {
@@ -28,21 +21,16 @@ export function Logo({
       <CryoMark size={size} inverse={inverse} />
       {showWordmark && (
         <span className="flex flex-col leading-none">
-          <span
-            className="font-bold lowercase tracking-tight"
-            style={{ fontSize: size * 0.72 }}
-          >
-            <span className={inverse ? "text-white" : "text-brand"}>cryo</span>
-            <span style={{ color: inverse ? "rgba(255,255,255,0.85)" : CORD_GREY }}>cord</span>
+          <span className={cn("font-bold", inverse ? "text-white" : "text-ink")} style={{ fontSize: size * 0.72 }}>
+            CryoCord
           </span>
           {showTagline && (
             <span
-              className="lowercase"
+              className={inverse ? "text-white/70" : "text-ink-faint"}
               style={{
                 fontSize: size * 0.26,
-                letterSpacing: size * 0.06,
+                letterSpacing: 0,
                 marginTop: size * 0.08,
-                color: inverse ? "rgba(255,255,255,0.7)" : CORD_GREY,
               }}
             >
               cell &amp; gene
@@ -54,35 +42,18 @@ export function Logo({
   );
 }
 
-/** The red swirl mark on its own. */
 export function CryoMark({ size, inverse = false }: { size: number; inverse?: boolean }) {
-  const red = inverse ? "#FFFFFF" : "#C8102E";
-  const dark = inverse ? "rgba(255,255,255,0.7)" : "#8E0B20";
   return (
-    <svg
-      width={size * 1.12}
-      height={size}
-      viewBox="0 0 46 44"
-      fill="none"
-      aria-hidden="true"
-      role="img"
-    >
-      {/* Outer sweep — bright red, ~300° spiral opening to the upper right. */}
-      <path
-        d="M30 6 A18 18 0 1 0 39 27"
-        fill="none"
-        stroke={red}
-        strokeWidth="7"
-        strokeLinecap="round"
-      />
-      {/* Inner counter-curl — darker red, gives the swirl its depth. */}
-      <path
-        d="M22 13 A9.5 9.5 0 1 1 31 27"
-        fill="none"
-        stroke={dark}
-        strokeWidth="5.5"
-        strokeLinecap="round"
-      />
-    </svg>
+    <Image
+      src={LOGO_SRC}
+      alt="CryoCord"
+      width={Math.round(size)}
+      height={Math.round(size)}
+      className={cn("shrink-0 object-contain", inverse && "brightness-0 invert")}
+      style={{
+        width: size,
+        height: size,
+      }}
+    />
   );
 }

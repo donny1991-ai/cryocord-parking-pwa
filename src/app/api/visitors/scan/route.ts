@@ -6,6 +6,7 @@ import {
   assertPurpose,
   rejectVisitorPassScan,
   reviewVisitorPass,
+  reviewVisitorPassForExit,
   scanVisitorPass,
   type VisitorDetailsUpdateInput,
 } from "@/lib/server/visitors";
@@ -17,7 +18,10 @@ const LIMITS = {
   name: 160,
   phoneNumber: 40,
   organisation: 160,
+  nric: 14,
+  passportNumber: 20,
   vehicleNumber: 32,
+  additionalVehicleNumber: 32,
   remarks: 2000,
   hostStaffId: 80,
   hostDepartment: 120,
@@ -35,6 +39,24 @@ function parseNullableString(value: unknown, max: number) {
     throw new Error("Visitor payload exceeds allowed field length.");
   }
   return text || null;
+}
+
+function parseNullableVisitTime(value: unknown) {
+  const time = String(value ?? "").trim();
+  if (!time) return null;
+  if (!/^\d{2}:\d{2}$/.test(time)) throw new Error("Visit time must use HH:mm format.");
+  const [hour, minute] = time.split(":").map(Number);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) throw new Error("Visit time is invalid.");
+  return time;
+}
+
+function parseNullableVisitorCount(value: unknown) {
+  if (value === undefined || value === null || String(value).trim() === "") return null;
+  const count = Number(value);
+  if (!Number.isInteger(count) || count < 1 || count > 999) {
+    throw new Error("Number of visitors must be between 1 and 999.");
+  }
+  return count;
 }
 
 function parseVisitorDetails(value: unknown): VisitorDetailsUpdateInput | undefined {
@@ -60,11 +82,28 @@ function parseVisitorDetails(value: unknown): VisitorDetailsUpdateInput | undefi
     details.organisation = parseNullableString(body.organisation, LIMITS.organisation);
   }
 
+  if ("identityType" in body) details.identityType = body.identityType === "passport" ? "passport" : "nric";
+  if ("nric" in body) details.nric = parseNullableString(body.nric, LIMITS.nric);
+  if ("passportNumber" in body) details.passportNumber = parseNullableString(body.passportNumber, LIMITS.passportNumber);
+
   if ("vehicleNumber" in body) {
     const vehicleNumber = String(body.vehicleNumber ?? "").trim();
     if (!vehicleNumber) throw new Error("Vehicle number is required.");
     if (tooLong(vehicleNumber, LIMITS.vehicleNumber)) throw new Error("Visitor payload exceeds allowed field length.");
     details.vehicleNumber = vehicleNumber;
+  }
+
+  if ("additionalVehicleNumbers" in body) {
+    if (!Array.isArray(body.additionalVehicleNumbers)) {
+      details.additionalVehicleNumbers = [];
+    } else {
+      details.additionalVehicleNumbers = body.additionalVehicleNumbers
+        .map((plate) => String(plate ?? "").trim())
+        .filter(Boolean);
+      if (details.additionalVehicleNumbers.some((plate) => tooLong(plate, LIMITS.additionalVehicleNumber))) {
+        throw new Error("Visitor payload exceeds allowed field length.");
+      }
+    }
   }
 
   if ("typeCode" in body) {
@@ -74,6 +113,9 @@ function parseVisitorDetails(value: unknown): VisitorDetailsUpdateInput | undefi
   if ("purpose" in body) {
     details.purpose = assertPurpose(body.purpose);
   }
+
+  if ("visitTime" in body) details.visitTime = parseNullableVisitTime(body.visitTime);
+  if ("visitorCount" in body) details.visitorCount = parseNullableVisitorCount(body.visitorCount);
 
   if ("remarks" in body) details.remarks = parseNullableString(body.remarks, LIMITS.remarks);
   if ("hostStaffId" in body) details.hostStaffId = parseNullableString(body.hostStaffId, LIMITS.hostStaffId);
@@ -101,12 +143,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ visitor });
     }
 
+    if (body.action === "review_exit") {
+      const visitor = await reviewVisitorPassForExit({ token, guardId: actor.id });
+      revalidateParkingPages(visitor.id);
+      return NextResponse.json({ visitor });
+    }
+
     if (body.action === "reject") {
       const reason = String(body.reason ?? "").trim();
       if (tooLong(reason, LIMITS.rejectReason)) {
         return NextResponse.json({ error: "Reject reason is too long." }, { status: 400 });
       }
-      const visitor = await rejectVisitorPassScan({ token, guardId: actor.id, reason });
+      const visitor = await rejectVisitorPassScan({
+        token,
+        guardId: actor.id,
+        vehicleNumber: typeof body.vehicleNumber === "string" ? body.vehicleNumber.trim() : undefined,
+        reason,
+      });
       revalidateParkingPages(visitor.id);
       return NextResponse.json({ visitor });
     }
@@ -115,6 +168,7 @@ export async function POST(request: NextRequest) {
     const visitor = await scanVisitorPass({
       token,
       action,
+      vehicleNumber: typeof body.vehicleNumber === "string" ? body.vehicleNumber.trim() : undefined,
       guardId: actor.id,
       details: parseVisitorDetails(body.visitor),
     });
@@ -135,11 +189,20 @@ export async function POST(request: NextRequest) {
       message === "Invalid purpose." ||
       message.includes("already") ||
       message.includes("must check in") ||
+      message.includes("Remarks are required") ||
+      message.includes("NRIC") ||
+      message.includes("Passport") ||
+      message.includes("Identity document") ||
+      message.includes("currently checked in") ||
+      message.includes("Vehicle") ||
+      message.includes("vehicle") ||
+      message.includes("Select a vehicle") ||
       message.includes("not valid") ||
       message.includes("expired") ||
       message.includes("cancelled") ||
       message.includes("required") ||
-      message.includes("Notes are required") ||
+      message.startsWith("Visit time") ||
+      message.includes("Number of visitors") ||
       message.includes("exceeds")
     ) {
       return NextResponse.json({ error: message }, { status: 400 });

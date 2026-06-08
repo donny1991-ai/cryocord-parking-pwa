@@ -11,7 +11,7 @@ export default async function VisitsPage() {
   return (
     <div>
       <PageHeader title="Visit Log" subtitle="Search and filter today's register" backHref="/parking" />
-      <VisitsList visits={snapshot.allVisits} nowIso={snapshot.now.toISOString()} />
+      <VisitsList visits={snapshot.logVisits} nowIso={snapshot.now.toISOString()} />
     </div>
   );
 }

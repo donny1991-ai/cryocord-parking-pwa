@@ -9,7 +9,10 @@ const LIMITS = {
   name: 160,
   phoneNumber: 40,
   organisation: 160,
+  nric: 14,
+  passportNumber: 20,
   vehicleNumber: 32,
+  additionalVehicleNumber: 32,
   remarks: 2000,
   hostStaffId: 80,
   hostDepartment: 120,
@@ -20,6 +23,30 @@ function tooLong(value: string, max: number) {
   return value.length > max;
 }
 
+function parseAdditionalVehicleNumbers(value: unknown) {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) return [];
+  return value.map((plate) => String(plate ?? "").trim()).filter(Boolean);
+}
+
+function parseVisitTime(value: unknown) {
+  const time = String(value ?? "").trim();
+  if (!time) return null;
+  if (!/^\d{2}:\d{2}$/.test(time)) throw new Error("Visit time must use HH:mm format.");
+  const [hour, minute] = time.split(":").map(Number);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) throw new Error("Visit time is invalid.");
+  return time;
+}
+
+function parseVisitorCount(value: unknown) {
+  if (value === undefined || value === null || String(value).trim() === "") return null;
+  const count = Number(value);
+  if (!Number.isInteger(count) || count < 1 || count > 999) {
+    throw new Error("Number of visitors must be between 1 and 999.");
+  }
+  return count;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const actor = await requireParkingUser(request);
@@ -27,10 +54,16 @@ export async function POST(request: NextRequest) {
     const name = String(body.name ?? "").trim();
     const phoneNumber = String(body.phoneNumber ?? "").trim();
     const organisation = String(body.organisation ?? "").trim();
+    const nric = String(body.nric ?? "").trim();
+    const passportNumber = String(body.passportNumber ?? "").trim();
+    const identityType = body.identityType === "passport" || body.identityType === "nric" ? body.identityType : undefined;
     const vehicleNumber = String(body.vehicleNumber ?? "").trim();
+    const additionalVehicleNumbers = parseAdditionalVehicleNumbers(body.additionalVehicleNumbers);
     const typeCode = assertVisitorTypeCode(body.typeCode);
     const purpose = assertPurpose(body.purpose);
     const visitDate = body.visitDate ? assertVisitDate(body.visitDate) : undefined;
+    const visitTime = parseVisitTime(body.visitTime);
+    const visitorCount = parseVisitorCount(body.visitorCount);
     const remarks = String(body.remarks ?? "").trim();
     const hostStaffId = String(body.hostStaffId ?? "").trim();
     const hostDepartment = String(body.hostDepartment ?? "").trim();
@@ -47,7 +80,10 @@ export async function POST(request: NextRequest) {
       tooLong(name, LIMITS.name) ||
       tooLong(phoneNumber, LIMITS.phoneNumber) ||
       tooLong(organisation, LIMITS.organisation) ||
+      tooLong(nric, LIMITS.nric) ||
+      tooLong(passportNumber, LIMITS.passportNumber) ||
       tooLong(vehicleNumber, LIMITS.vehicleNumber) ||
+      (additionalVehicleNumbers ?? []).some((plate) => tooLong(plate, LIMITS.additionalVehicleNumber)) ||
       tooLong(remarks, LIMITS.remarks) ||
       tooLong(hostStaffId, LIMITS.hostStaffId) ||
       tooLong(hostDepartment, LIMITS.hostDepartment) ||
@@ -60,10 +96,16 @@ export async function POST(request: NextRequest) {
       name,
       phoneNumber,
       organisation,
+      identityType,
+      nric: nric || undefined,
+      passportNumber: passportNumber || undefined,
       vehicleNumber,
+      additionalVehicleNumbers,
       typeCode,
       purpose,
       visitDate,
+      visitTime,
+      visitorCount,
       remarks,
       hostStaffId,
       hostDepartment,
@@ -85,8 +127,13 @@ export async function POST(request: NextRequest) {
     if (
       message === "Invalid visitor type." ||
       message === "Invalid purpose." ||
+      message.includes("Remarks are required") ||
+      message.includes("NRIC") ||
+      message.includes("Passport") ||
+      message.includes("Identity document") ||
       message.startsWith("Visit date") ||
-      message.includes("Notes are required")
+      message.startsWith("Visit time") ||
+      message.includes("Number of visitors")
     ) {
       return NextResponse.json({ error: message }, { status: 400 });
     }

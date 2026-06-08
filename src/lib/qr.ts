@@ -98,8 +98,9 @@ export async function verifyVisitToken(
 
 /**
  * Decode the opaque reference claims without trusting the JWT signature.
- * Callers must validate the decoded `tokenId` against `parking.visitors.qr_token_jti`
- * before treating the token as usable.
+ * This is only for routing a token to its DB record. Callers may compare the
+ * decoded jti with the stored DB token id for key-rotation resilience, but must
+ * not trust mutable claims such as exp unless verification succeeded.
  */
 export function decodeVisitTokenReference(token: string): PassClaims {
   const payload = decodeJwt(token);

@@ -9,6 +9,12 @@ import { cn, durationSince, formatTime } from "@/lib/utils";
 export function VisitRow({ visit, now }: { visit: Visit; now?: Date }) {
   const live = visit.status === "inside" || visit.status === "overstayed" || visit.status === "flagged";
   const s = STATUS_STYLE[visit.status];
+  const additionalCount = visit.additionalPlates?.length ?? 0;
+  const insideCount = visit.vehicles?.filter((vehicle) => vehicle.status === "checked_in").length ?? 0;
+  const pendingCount = visit.vehicles?.filter((vehicle) => vehicle.status === "pending").length ?? 0;
+  const exitedCount = visit.vehicles?.filter((vehicle) => vehicle.status === "checked_out").length ?? 0;
+  const linkedRegistration = (visit.registrationVehicleCount ?? 0) > 1;
+  const roleLabel = visit.registrationVehicleRole === "primary" ? "Primary" : "Linked";
 
   return (
     <div className="glass relative flex items-center gap-2 overflow-hidden rounded-2xl p-3.5 pl-4">
@@ -32,6 +38,19 @@ export function VisitRow({ visit, now }: { visit: Visit; now?: Date }) {
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-ink-faint">
             <Chip tone="brand">{visitTypeLabel(visit.visitType)}</Chip>
+            {linkedRegistration ? (
+              <span>
+                {roleLabel} under {visit.registrationPlate ?? visit.plate} · {visit.registrationVehicleCount} vehicles
+              </span>
+            ) : additionalCount > 0 ? (
+              <span>+{additionalCount} vehicle{additionalCount === 1 ? "" : "s"}</span>
+            ) : null}
+            {!linkedRegistration && (visit.vehicles?.length ?? 0) > 1 && (
+              <span>{insideCount} in · {pendingCount} due · {exitedCount} out</span>
+            )}
+            {linkedRegistration && (
+              <span>{insideCount} in · {pendingCount} due · {exitedCount} out</span>
+            )}
             <span>{purposeLabel(visit.purpose)}</span>
             <span className="truncate">· {visit.visitorName}</span>
           </div>

@@ -110,7 +110,7 @@ export default async function DashboardPage() {
         </div>
         <div className="stagger-children space-y-2.5">
           {inside.map((v) => (
-            <VisitRow key={v.id} visit={v} now={snapshot.now} />
+            <VisitRow key={`${v.id}:${v.vehicleId ?? "registration"}`} visit={v} now={snapshot.now} />
           ))}
         </div>
       </section>

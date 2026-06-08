@@ -24,6 +24,8 @@ export function createVisitorInputFactory(overrides: Partial<CreateVisitorInput>
     name: faker.person.fullName(),
     phoneNumber: faker.phone.number({ style: "international" }),
     organisation: faker.company.name(),
+    identityType: "nric",
+    nric: "900101-14-1234",
     vehicleNumber: vehicleNumberFactory(),
     typeCode: faker.helpers.arrayElement(visitorTypeCodes),
     remarks: faker.lorem.sentence(),
@@ -44,20 +46,27 @@ export function visitorScanStateFactory(overrides: Partial<VisitorScanState> = {
 export function visitorEntityFactory(overrides: Partial<VisitorEntity> = {}): VisitorEntity {
   const vehicleNumber = overrides.vehicleNumber ?? vehicleNumberFactory();
   const now = new Date();
+  const { identityType = null, nric = null, passportNumber = null, ...restOverrides } = overrides;
 
   return {
     id: faker.string.uuid(),
     name: faker.person.fullName(),
     phoneNumber: faker.phone.number({ style: "international" }),
     organisation: null,
+    identityType,
+    nric,
+    passportNumber,
     vehicleNumber,
     vehicleNumberNormalised: normalisePlate(vehicleNumber),
+    additionalVehicleNumbers: [],
     checkedIn: null,
     checkedOut: null,
     typeId: 1,
     remarks: null,
     purpose: "other",
     visitDate: null,
+    visitTime: null,
+    visitorCount: null,
     hostStaffId: null,
     hostDepartment: null,
     flagReason: null,
@@ -70,6 +79,6 @@ export function visitorEntityFactory(overrides: Partial<VisitorEntity> = {}): Vi
     checkedOutBy: null,
     createdAt: now,
     updatedAt: now,
-    ...overrides,
+    ...restOverrides,
   };
 }

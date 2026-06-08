@@ -42,7 +42,7 @@ export default async function AdminPage() {
           Alerts ({alerts.length})
         </h2>
         {alerts.map((v) => (
-          <VisitRow key={v.id} visit={v} now={snapshot.now} />
+          <VisitRow key={`${v.id}:${v.vehicleId ?? "registration"}`} visit={v} now={snapshot.now} />
         ))}
         {alerts.length === 0 && (
           <p className="py-6 text-center text-sm text-ink-faint">No overstays or flags right now.</p>
