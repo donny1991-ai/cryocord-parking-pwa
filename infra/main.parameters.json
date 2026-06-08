@@ -53,6 +53,9 @@
     "smtpSecure": {
       "value": "${SMTP_SECURE=true}"
     },
+    "smtpTlsRejectUnauthorized": {
+      "value": "${SMTP_TLS_REJECT_UNAUTHORIZED=true}"
+    },
     "smtpEhloDomain": {
       "value": "${SMTP_EHLO_DOMAIN=cryocord-parking.azurecontainerapps.io}"
     }

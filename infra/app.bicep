@@ -61,6 +61,9 @@ param smtpPass string = ''
 @description('Whether SMTP should use implicit TLS.')
 param smtpSecure string = 'true'
 
+@description('Whether SMTP TLS should reject self-signed or untrusted certificate chains.')
+param smtpTlsRejectUnauthorized string = 'true'
+
 @description('EHLO domain sent to the SMTP server.')
 param smtpEhloDomain string = 'cryocord-parking.azurecontainerapps.io'
 
@@ -241,6 +244,10 @@ var appEnv = concat([
   {
     name: 'SMTP_SECURE'
     value: smtpSecure
+  }
+  {
+    name: 'SMTP_TLS_REJECT_UNAUTHORIZED'
+    value: smtpTlsRejectUnauthorized
   }
   {
     name: 'SMTP_EHLO_DOMAIN'

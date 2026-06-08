@@ -120,10 +120,14 @@ Optional overrides:
 ```bash
 azd env set NEXT_PUBLIC_APP_URL https://parking.example.com
 azd env set AUTH_OTP_SECRET '<dedicated-otp-secret>'
+# Only use this if the configured database presents a self-signed/untrusted chain.
+azd env set DATABASE_SSL_REJECT_UNAUTHORIZED false
 azd env set SMTP_HOST mail.cryocord.com.my
 azd env set SMTP_PORT 465
 azd env set SMTP_USER aiprojects@cryocord.com.my
 azd env set SMTP_FROM aiprojects@cryocord.com.my
+# Only use this if the configured SMTP server presents a self-signed/untrusted chain.
+azd env set SMTP_TLS_REJECT_UNAUTHORIZED false
 ```
 
 Provision and deploy:
@@ -148,6 +152,7 @@ Runtime variable reference:
 ```bash
 DATABASE_URL=<supabase-postgres-connection-string>
 DATABASE_SSL=true
+DATABASE_SSL_REJECT_UNAUTHORIZED=true
 PARKING_QR_KEY_ID=<current-key-id>
 PARKING_QR_SIGNING_KEY=<secret-from-key-vault>
 SUPABASE_JWT_SECRET=<supabase-jwt-secret>
@@ -156,6 +161,7 @@ SMTP_HOST=mail.cryocord.com.my
 SMTP_PORT=465
 SMTP_USER=aiprojects@cryocord.com.my
 SMTP_PASS=<smtp-password>
+SMTP_TLS_REJECT_UNAUTHORIZED=true
 ```
 
 Run `npm run db:migration:run` from CI/CD or a one-off migration container before

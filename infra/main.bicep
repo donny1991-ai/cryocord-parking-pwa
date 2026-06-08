@@ -64,6 +64,9 @@ param smtpFrom string = ''
 @description('Whether SMTP should use implicit TLS.')
 param smtpSecure string = 'true'
 
+@description('Whether SMTP TLS should reject self-signed or untrusted certificate chains.')
+param smtpTlsRejectUnauthorized string = 'true'
+
 @description('EHLO domain sent to the SMTP server.')
 param smtpEhloDomain string = 'cryocord-parking.azurecontainerapps.io'
 
@@ -113,6 +116,7 @@ module app './app.bicep' = {
     smtpFrom: smtpFrom
     smtpPass: smtpPass
     smtpSecure: smtpSecure
+    smtpTlsRejectUnauthorized: smtpTlsRejectUnauthorized
     smtpEhloDomain: smtpEhloDomain
     minReplicas: minReplicas
     maxReplicas: maxReplicas

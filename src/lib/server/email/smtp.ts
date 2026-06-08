@@ -15,17 +15,18 @@ export interface EmailTransport {
   send(message: EmailMessage): Promise<void>;
 }
 
-interface SmtpConfig {
+export interface SmtpConfig {
   host: string;
   port: number;
   username: string;
   password: string;
   from: string;
   secure: boolean;
+  tlsRejectUnauthorized: boolean;
   timeoutMs: number;
 }
 
-function getSmtpConfig(): SmtpConfig {
+export function getSmtpConfig(): SmtpConfig {
   const host = process.env.SMTP_HOST;
   const username = process.env.SMTP_USER;
   const password = process.env.SMTP_PASS;
@@ -51,6 +52,7 @@ function getSmtpConfig(): SmtpConfig {
     password,
     from,
     secure: process.env.SMTP_SECURE === "false" ? false : true,
+    tlsRejectUnauthorized: process.env.SMTP_TLS_REJECT_UNAUTHORIZED === "false" ? false : true,
     timeoutMs: Number(process.env.SMTP_TIMEOUT_MS ?? 10_000),
   };
 }
@@ -120,7 +122,12 @@ export function createSmtpEmailTransport(config: SmtpConfig = getSmtpConfig()): 
   return {
     async send(message) {
       const socket = config.secure
-        ? tls.connect({ host: config.host, port: config.port, servername: config.host })
+        ? tls.connect({
+            host: config.host,
+            port: config.port,
+            servername: config.host,
+            rejectUnauthorized: config.tlsRejectUnauthorized,
+          })
         : net.connect({ host: config.host, port: config.port });
 
       socket.setEncoding("utf8");
