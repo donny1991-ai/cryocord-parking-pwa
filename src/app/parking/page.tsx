@@ -1,6 +1,5 @@
 import Link from "next/link";
 import {
-  CalendarPlus,
   ChevronRight,
   DoorOpen,
   Flag,
@@ -63,12 +62,6 @@ export default async function DashboardPage() {
           title="New Entry"
           subtitle="Plate scan · check in"
           primary
-        />
-        <ActionTile
-          href="/parking/pre-register"
-          icon={CalendarPlus}
-          title="Pre-register"
-          subtitle="Create · send QR"
         />
         <ActionTile
           href="/parking/arrival"

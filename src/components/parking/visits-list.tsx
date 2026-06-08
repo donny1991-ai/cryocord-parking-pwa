@@ -61,7 +61,7 @@ export function VisitsList({ visits, nowIso }: { visits: Visit[]; nowIso: string
 
       <div className="space-y-2.5">
         {filtered.map((v) => (
-          <VisitRow key={v.id} visit={v} now={now} showQuickRegister />
+          <VisitRow key={v.id} visit={v} now={now} />
         ))}
         {filtered.length === 0 && (
           <p className="py-10 text-center text-sm text-ink-faint">No visits match.</p>

@@ -1,14 +1,13 @@
 import Link from "next/link";
-import { CalendarPlus, ChevronRight, Clock } from "lucide-react";
+import { ChevronRight, Clock } from "lucide-react";
 import type { Visit } from "@/lib/types";
 import { StatusPill, Chip } from "@/components/ui/badge";
 import { visitTypeLabel, purposeLabel, STATUS_STYLE } from "@/lib/labels";
 import { cn, durationSince, formatTime } from "@/lib/utils";
 
 /** Compact visit row used on the dashboard and visit log. */
-export function VisitRow({ visit, now, showQuickRegister = false }: { visit: Visit; now?: Date; showQuickRegister?: boolean }) {
+export function VisitRow({ visit, now }: { visit: Visit; now?: Date }) {
   const live = visit.status === "inside" || visit.status === "overstayed" || visit.status === "flagged";
-  const canQuickRegister = showQuickRegister && visit.status === "exited";
   const s = STATUS_STYLE[visit.status];
 
   return (
@@ -43,20 +42,9 @@ export function VisitRow({ visit, now, showQuickRegister = false }: { visit: Vis
             <Clock className="h-3 w-3" />
             {live ? durationSince(visit.entryTime, now) : formatTime(visit.entryTime)}
           </span>
-          {!canQuickRegister && <ChevronRight className="h-4 w-4 text-ink-faint" />}
+          <ChevronRight className="h-4 w-4 text-ink-faint" />
         </div>
       </Link>
-
-      {canQuickRegister && (
-        <Link
-          href={`/parking/pre-register?fromVisit=${encodeURIComponent(visit.id)}`}
-          aria-label={`Quick re-register ${visit.plate}`}
-          title="Quick re-register"
-          className="glass-interactive flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-brand/10 text-brand"
-        >
-          <CalendarPlus className="h-5 w-5" />
-        </Link>
-      )}
     </div>
   );
 }

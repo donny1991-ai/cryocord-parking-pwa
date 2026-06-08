@@ -50,7 +50,6 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
     : undefined;
   const trail = await getVisitAuditTrail(visit.id);
   const live = visit.status === "inside" || visit.status === "overstayed" || visit.status === "flagged";
-  const canQuickRegister = visit.status === "exited";
   const passExpiresAt = visit.qrTokenExpiresAt ? new Date(visit.qrTokenExpiresAt) : null;
   const showActivePass = Boolean(
     visit.qrToken &&
@@ -156,16 +155,6 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
 
       {actor.role === "admin" && live && (
         <VisitorFlagControl visitId={visit.id} initialReason={visit.flagReason} />
-      )}
-
-      {canQuickRegister && (
-        <div className="pt-2">
-          <Link href={`/parking/pre-register?fromVisit=${encodeURIComponent(visit.id)}`}>
-            <Button variant="outline" size="xl" className="w-full">
-              <CalendarPlus className="h-5 w-5" /> Quick re-register
-            </Button>
-          </Link>
-        </div>
       )}
 
       {/* Entry photo (Azure Blob, MY West) */}

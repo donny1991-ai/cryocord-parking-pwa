@@ -42,3 +42,6 @@ yarn-error.log*
 
 # tests
 /coverage/
+/test-results/
+/playwright-report/
+/blob-report/
