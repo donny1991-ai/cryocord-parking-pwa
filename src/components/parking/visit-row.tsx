@@ -1,15 +1,20 @@
 import Link from "next/link";
-import { CalendarPlus, ChevronRight, Clock } from "lucide-react";
+import { ChevronRight, Clock } from "lucide-react";
 import type { Visit } from "@/lib/types";
 import { StatusPill, Chip } from "@/components/ui/badge";
 import { visitTypeLabel, purposeLabel, STATUS_STYLE } from "@/lib/labels";
 import { cn, durationSince, formatTime } from "@/lib/utils";
 
 /** Compact visit row used on the dashboard and visit log. */
-export function VisitRow({ visit, now, showQuickRegister = false }: { visit: Visit; now?: Date; showQuickRegister?: boolean }) {
+export function VisitRow({ visit, now }: { visit: Visit; now?: Date }) {
   const live = visit.status === "inside" || visit.status === "overstayed" || visit.status === "flagged";
-  const canQuickRegister = showQuickRegister && visit.status === "exited";
   const s = STATUS_STYLE[visit.status];
+  const additionalCount = visit.additionalPlates?.length ?? 0;
+  const insideCount = visit.vehicles?.filter((vehicle) => vehicle.status === "checked_in").length ?? 0;
+  const pendingCount = visit.vehicles?.filter((vehicle) => vehicle.status === "pending").length ?? 0;
+  const exitedCount = visit.vehicles?.filter((vehicle) => vehicle.status === "checked_out").length ?? 0;
+  const linkedRegistration = (visit.registrationVehicleCount ?? 0) > 1;
+  const roleLabel = visit.registrationVehicleRole === "primary" ? "Primary" : "Linked";
 
   return (
     <div className="glass relative flex items-center gap-2 overflow-hidden rounded-2xl p-3.5 pl-4">
@@ -33,6 +38,19 @@ export function VisitRow({ visit, now, showQuickRegister = false }: { visit: Vis
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-ink-faint">
             <Chip tone="brand">{visitTypeLabel(visit.visitType)}</Chip>
+            {linkedRegistration ? (
+              <span>
+                {roleLabel} under {visit.registrationPlate ?? visit.plate} · {visit.registrationVehicleCount} vehicles
+              </span>
+            ) : additionalCount > 0 ? (
+              <span>+{additionalCount} vehicle{additionalCount === 1 ? "" : "s"}</span>
+            ) : null}
+            {!linkedRegistration && (visit.vehicles?.length ?? 0) > 1 && (
+              <span>{insideCount} in · {pendingCount} due · {exitedCount} out</span>
+            )}
+            {linkedRegistration && (
+              <span>{insideCount} in · {pendingCount} due · {exitedCount} out</span>
+            )}
             <span>{purposeLabel(visit.purpose)}</span>
             <span className="truncate">· {visit.visitorName}</span>
           </div>
@@ -43,20 +61,9 @@ export function VisitRow({ visit, now, showQuickRegister = false }: { visit: Vis
             <Clock className="h-3 w-3" />
             {live ? durationSince(visit.entryTime, now) : formatTime(visit.entryTime)}
           </span>
-          {!canQuickRegister && <ChevronRight className="h-4 w-4 text-ink-faint" />}
+          <ChevronRight className="h-4 w-4 text-ink-faint" />
         </div>
       </Link>
-
-      {canQuickRegister && (
-        <Link
-          href={`/parking/pre-register?fromVisit=${encodeURIComponent(visit.id)}`}
-          aria-label={`Quick re-register ${visit.plate}`}
-          title="Quick re-register"
-          className="glass-interactive flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-brand/10 text-brand"
-        >
-          <CalendarPlus className="h-5 w-5" />
-        </Link>
-      )}
     </div>
   );
 }

@@ -1,6 +1,5 @@
 import Link from "next/link";
 import {
-  CalendarPlus,
   ChevronRight,
   DoorOpen,
   Flag,
@@ -65,12 +64,6 @@ export default async function DashboardPage() {
           primary
         />
         <ActionTile
-          href="/parking/pre-register"
-          icon={CalendarPlus}
-          title="Pre-register"
-          subtitle="Create · send QR"
-        />
-        <ActionTile
           href="/parking/arrival"
           icon={QrCode}
           title="Arrival Scan"
@@ -117,7 +110,7 @@ export default async function DashboardPage() {
         </div>
         <div className="stagger-children space-y-2.5">
           {inside.map((v) => (
-            <VisitRow key={v.id} visit={v} now={snapshot.now} />
+            <VisitRow key={`${v.id}:${v.vehicleId ?? "registration"}`} visit={v} now={snapshot.now} />
           ))}
         </div>
       </section>

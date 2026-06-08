@@ -19,6 +19,35 @@ const QrScanner = dynamic(() => import("./qr-scanner").then((m) => m.QrScanner),
   loading: () => <div className="aspect-square animate-pulse rounded-3xl bg-ink/80" />,
 });
 
+interface ScannedExitVehicle {
+  id: string;
+  vehicleNumber: string;
+  isPrimary: boolean;
+  status: "pending" | "checked_in" | "checked_out" | "cancelled" | "rejected";
+  checkedIn: string | null;
+  checkedOut: string | null;
+  checkedInBy: string | null;
+  checkedOutBy: string | null;
+}
+
+interface ScannedExitVisitor {
+  id: string;
+  name: string;
+  phoneNumber: string;
+  organisation: string | null;
+  vehicleNumber: string;
+  additionalVehicleNumbers: string[];
+  vehicles: ScannedExitVehicle[];
+  checkedIn: string | null;
+  checkedOut: string | null;
+  checkedInBy?: string | null;
+  checkedOutBy?: string | null;
+  typeCode: Visit["visitType"];
+  purpose: Visit["purpose"];
+  status: string;
+  createdAt: string;
+}
+
 export function ExitFlow({
   insideVisits,
   nowIso,
@@ -33,6 +62,8 @@ export function ExitFlow({
   const [query, setQuery] = useState("");
   const [scanning, setScanning] = useState(false);
   const [camMsg, setCamMsg] = useState<string | null>(null);
+  const [pendingToken, setPendingToken] = useState<string | null>(null);
+  const [reviewingExit, setReviewingExit] = useState<ScannedExitVisitor | null>(null);
   const [selected, setSelected] = useState<Visit | null>(
     initialVisitId ? inside.find((visit) => visit.id === initialVisitId) ?? null : null,
   );
@@ -43,6 +74,7 @@ export function ExitFlow({
   function startScan() {
     const support = checkCameraSupport();
     setCamMsg(support.ok ? null : support.message || "Camera unavailable.");
+    setCheckoutError(null);
     setScanning(true);
   }
 
@@ -50,7 +82,10 @@ export function ExitFlow({
     const q = normalisePlate(query);
     if (!q) return inside;
     return inside.filter(
-      (v) => normalisePlate(v.plate).includes(q) || v.visitorName.toUpperCase().includes(query.toUpperCase()),
+      (v) =>
+        normalisePlate(v.plate).includes(q) ||
+        (v.additionalPlates ?? []).some((plate) => normalisePlate(plate).includes(q)) ||
+        v.visitorName.toUpperCase().includes(query.toUpperCase()),
     );
   }, [query, inside]);
 
@@ -59,38 +94,84 @@ export function ExitFlow({
       const response = await fetch("/api/visitors/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, action: "check_out" }),
+        body: JSON.stringify({ token, action: "review_exit" }),
       });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Unable to verify this pass for exit.");
+      }
 
-      if (response.ok) {
-        const payload = await response.json();
-        const visitor = payload.visitor;
-        const v: Visit = {
-          id: visitor.id,
-          plate: visitor.vehicleNumber,
-          visitorName: visitor.name,
-          visitorContact: visitor.phoneNumber,
-          visitType: visitor.typeCode as Visit["visitType"],
-          purpose: visitor.purpose as Visit["purpose"],
-          entryTime: visitor.checkedIn ?? new Date().toISOString(),
-          entryGuardId: visitor.checkedInBy ?? "system",
-          exitTime: visitor.checkedOut ?? new Date().toISOString(),
-          exitGuardId: visitor.checkedOutBy ?? "system",
-          status: "exited",
-          createdAt: visitor.createdAt,
-        };
-
-        setScanning(false);
-        setSelected(v);
-        setExited(true);
+      const visitor = payload.visitor as ScannedExitVisitor;
+      const activeVehicles = visitor.vehicles.filter((vehicle) => vehicle.status === "checked_in");
+      setScanning(false);
+      setPendingToken(token);
+      setReviewingExit(visitor);
+      if (activeVehicles.length === 1) {
+        await checkoutScannedVehicle(token, visitor, activeVehicles[0].vehicleNumber);
         return;
       }
-    } catch {
-      // Keep the demo scanner path alive when no database is configured.
+    } catch (error) {
+      setCheckoutError(error instanceof Error ? error.message : "Pass not recognised for exit. Search by plate instead.");
+      setScanning(false);
     }
+  }
 
-    setScanning(false);
-    alert("Pass not recognised. Search by plate instead.");
+  function toVisitFromScannedVehicle(visitor: ScannedExitVisitor, vehicleNumber: string): Visit {
+    const vehicle = visitor.vehicles.find((candidate) => candidate.vehicleNumber === vehicleNumber);
+    return {
+      id: visitor.id,
+      vehicleId: vehicle?.id,
+      plate: vehicleNumber,
+      activeVehicleNumber: vehicleNumber,
+      additionalPlates: visitor.additionalVehicleNumbers ?? [],
+      vehicles: visitor.vehicles.map((item) => ({
+        id: item.id,
+        plate: item.vehicleNumber,
+        isPrimary: item.isPrimary,
+        status: item.status,
+        checkedIn: item.checkedIn ?? undefined,
+        checkedOut: item.checkedOut ?? undefined,
+        checkedInBy: item.checkedInBy ?? undefined,
+        checkedOutBy: item.checkedOutBy ?? undefined,
+      })),
+      visitorName: visitor.name,
+      visitorContact: visitor.phoneNumber,
+      organisation: visitor.organisation ?? undefined,
+      visitType: visitor.typeCode,
+      purpose: visitor.purpose,
+      entryTime: vehicle?.checkedIn ?? visitor.checkedIn ?? new Date().toISOString(),
+      entryGuardId: vehicle?.checkedInBy ?? visitor.checkedInBy ?? "system",
+      exitTime: vehicle?.checkedOut ?? visitor.checkedOut ?? new Date().toISOString(),
+      exitGuardId: vehicle?.checkedOutBy ?? visitor.checkedOutBy ?? "system",
+      status: "exited",
+      createdAt: visitor.createdAt,
+    };
+  }
+
+  async function checkoutScannedVehicle(token: string, sourceVisitor: ScannedExitVisitor, vehicleNumber: string) {
+    setCheckingOut(true);
+    setCheckoutError(null);
+    try {
+      const response = await fetch("/api/visitors/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, action: "check_out", vehicleNumber }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Unable to log exit.");
+      }
+      const visitor = payload.visitor as ScannedExitVisitor;
+      setSelected(toVisitFromScannedVehicle(visitor, vehicleNumber));
+      setReviewingExit(null);
+      setPendingToken(null);
+      setExited(true);
+    } catch (error) {
+      setReviewingExit(sourceVisitor);
+      setCheckoutError(error instanceof Error ? error.message : "Unable to log exit.");
+    } finally {
+      setCheckingOut(false);
+    }
   }
 
   async function confirmSelectedExit() {
@@ -101,6 +182,8 @@ export function ExitFlow({
     try {
       const response = await fetch(`/api/visitors/${selected.id}/checkout`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vehicleNumber: selected.activeVehicleNumber ?? selected.plate }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -124,6 +207,7 @@ export function ExitFlow({
         </div>
         <GlassCard padding="lg" className="mx-auto max-w-sm space-y-1 text-left">
           <Row label="Plate" value={selected.plate} />
+          {(selected.additionalPlates?.length ?? 0) > 0 && <Row label="Other plates" value={selected.additionalPlates!.join(", ")} />}
           <Row label="Visitor" value={selected.visitorName} />
           <Row label="Duration on site" value={durationSince(selected.entryTime, now)} />
           <Row label="Exit time" value={formatTime(now)} />
@@ -144,6 +228,23 @@ export function ExitFlow({
             <StatusPill status={selected.status} />
           </div>
           <p className="text-3xl font-bold tracking-wide text-ink">{selected.plate}</p>
+          {(selected.vehicles?.length ?? 0) > 1 && (
+            <div className="flex flex-wrap gap-1.5">
+              {selected.vehicles!.map((vehicle) => (
+                <span
+                  key={vehicle.id}
+                  className={[
+                    "rounded-full border px-2 py-0.5 text-[11px] font-bold",
+                    vehicle.plate === selected.plate
+                      ? "border-brand/30 bg-brand/10 text-brand"
+                      : "border-white/60 bg-white/45 text-ink-faint",
+                  ].join(" ")}
+                >
+                  {vehicle.plate} · {vehicle.status === "checked_in" ? "inside" : vehicle.status.replace("_", " ")}
+                </span>
+              ))}
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-2">
             <Chip tone="brand">{visitTypeLabel(selected.visitType)}</Chip>
             <Chip>On site {durationSince(selected.entryTime, now)}</Chip>
@@ -161,6 +262,58 @@ export function ExitFlow({
             {checkoutError}
           </p>
         )}
+      </div>
+    );
+  }
+
+  if (reviewingExit && pendingToken) {
+    const activeVehicles = reviewingExit.vehicles.filter((vehicle) => vehicle.status === "checked_in");
+    return (
+      <div className="space-y-4">
+        <GlassCard variant="strong" padding="lg" className="space-y-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Select vehicle leaving</p>
+            <p className="mt-1 text-sm text-ink-soft">
+              {reviewingExit.name} · {visitTypeLabel(reviewingExit.typeCode)}
+            </p>
+          </div>
+          <div className="space-y-2">
+            {activeVehicles.map((vehicle) => (
+              <button
+                key={vehicle.id}
+                type="button"
+                onClick={() => checkoutScannedVehicle(pendingToken, reviewingExit, vehicle.vehicleNumber)}
+                disabled={checkingOut}
+                className="glass glass-interactive flex w-full items-center justify-between rounded-2xl p-3 text-left"
+              >
+                <div>
+                  <p className="font-bold tracking-wide text-ink">{vehicle.vehicleNumber}</p>
+                  <p className="text-xs text-ink-faint">
+                    On site {durationSince(vehicle.checkedIn ?? reviewingExit.checkedIn ?? new Date().toISOString(), now)}
+                  </p>
+                </div>
+                <DoorOpen className="h-5 w-5 text-brand" />
+              </button>
+            ))}
+          </div>
+        </GlassCard>
+        {checkoutError && (
+          <p className="rounded-2xl bg-brand/10 px-3 py-2 text-center text-xs font-semibold text-brand">
+            {checkoutError}
+          </p>
+        )}
+        <Button
+          variant="glass"
+          className="w-full"
+          onClick={() => {
+            setReviewingExit(null);
+            setPendingToken(null);
+            setCheckoutError(null);
+          }}
+          disabled={checkingOut}
+        >
+          Scan another pass
+        </Button>
       </div>
     );
   }
@@ -187,6 +340,12 @@ export function ExitFlow({
         <Button size="xl" className="w-full" onClick={startScan}>
           <ScanLine className="h-6 w-6" /> Scan visitor pass
         </Button>
+      )}
+
+      {checkoutError && (
+        <p className="rounded-2xl bg-brand/10 px-3 py-2 text-center text-xs font-semibold text-brand">
+          {checkoutError}
+        </p>
       )}
 
       <div className="relative">
@@ -217,6 +376,11 @@ export function ExitFlow({
               <p className="mt-0.5 text-xs text-ink-faint">
                 {v.visitorName} · {visitTypeLabel(v.visitType)}
               </p>
+              {(v.vehicles?.length ?? 0) > 1 && (
+                <p className="mt-1 text-[11px] font-semibold text-ink-faint">
+                  Linked registration · {v.vehicles!.length} vehicles
+                </p>
+              )}
             </div>
             <span className="text-xs font-semibold tabular-nums text-ink-soft">
               {durationSince(v.entryTime, now)}

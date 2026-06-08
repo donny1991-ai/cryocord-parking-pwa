@@ -21,7 +21,7 @@ export class CreateVisitorAccessTables1716900000000 implements MigrationInterfac
       DO $$
       BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE t.typname = 'visitor_scan_event_type' AND n.nspname = 'parking') THEN
-          CREATE TYPE "parking"."visitor_scan_event_type" AS ENUM ('pass_issued', 'check_in', 'check_out', 'scan_rejected');
+          CREATE TYPE "parking"."visitor_scan_event_type" AS ENUM ('pass_issued', 'scan_reviewed', 'details_updated', 'check_in', 'check_out', 'scan_rejected');
         END IF;
       END
       $$;
@@ -39,10 +39,14 @@ export class CreateVisitorAccessTables1716900000000 implements MigrationInterfac
     await queryRunner.query(`
       INSERT INTO "parking"."visitor_types" ("code", "label")
       VALUES
-        ('guest', 'Guest'),
+        ('visitor', 'Visitor'),
         ('vendor', 'Vendor'),
-        ('client', 'Client'),
-        ('staff', 'Staff')
+        ('courier', 'Courier'),
+        ('patient', 'Patient'),
+        ('staff', 'Staff'),
+        ('contractor', 'Contractor'),
+        ('vip', 'VIP'),
+        ('other', 'Other')
       ON CONFLICT ("code") DO UPDATE SET "label" = EXCLUDED."label"
     `);
 
@@ -51,6 +55,7 @@ export class CreateVisitorAccessTables1716900000000 implements MigrationInterfac
         "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         "name" varchar(160) NOT NULL,
         "phone_number" varchar(40) NOT NULL,
+        "organisation" varchar(160),
         "vehicle_number" varchar(32) NOT NULL,
         "vehicle_number_normalised" varchar(32) NOT NULL,
         "checked_in" timestamptz,

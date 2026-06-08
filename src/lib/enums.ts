@@ -5,10 +5,14 @@
  */
 
 export const VISIT_TYPES = [
-  "guest",
+  "visitor",
   "vendor",
-  "client",
+  "courier",
+  "patient",
   "staff",
+  "contractor",
+  "vip",
+  "other",
 ] as const;
 export type VisitType = (typeof VISIT_TYPES)[number];
 
@@ -30,8 +34,11 @@ export const OWNER_TYPES = [
   "staff",
   "resident",
   "vendor",
+  "courier",
   "patient",
   "visitor",
+  "contractor",
   "vip",
+  "other",
 ] as const;
 export type OwnerType = (typeof OWNER_TYPES)[number];

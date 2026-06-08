@@ -9,6 +9,7 @@ import {
   FileClock,
   Hash,
   Phone,
+  PhoneCall,
   Send,
   ShieldCheck,
   UserRound,
@@ -19,13 +20,15 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { StatusPill, Chip } from "@/components/ui/badge";
 import { QrPass } from "@/components/parking/qr-pass";
+import { IdentityDocumentRow } from "@/components/parking/identity-document-row";
 import { VisitorCancelControl } from "@/components/parking/visitor-cancel-control";
 import { VisitorFlagControl } from "@/components/parking/visitor-flag-control";
-import { getDemoEmployees, getVisitAuditTrail, getVisitById } from "@/lib/server/parking-data";
+import { getVisitAuditTrail, getVisitById } from "@/lib/server/parking-data";
 import { requireParkingPageUser } from "@/lib/server/page-auth";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
 import { purposeLabel, visitTypeLabel } from "@/lib/labels";
 import { buildPassMessage, waLink } from "@/lib/whatsapp";
+import type { Employee } from "@/lib/types";
 
 async function getRequestOrigin() {
   const configuredOrigin = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
@@ -45,12 +48,8 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
   const [visit, origin] = await Promise.all([getVisitById(id), getRequestOrigin()]);
   if (!visit) notFound();
 
-  const host = visit.hostStaffId
-    ? getDemoEmployees().find((e) => e.staffId === visit.hostStaffId)
-    : undefined;
   const trail = await getVisitAuditTrail(visit.id);
   const live = visit.status === "inside" || visit.status === "overstayed" || visit.status === "flagged";
-  const canQuickRegister = visit.status === "exited";
   const passExpiresAt = visit.qrTokenExpiresAt ? new Date(visit.qrTokenExpiresAt) : null;
   const showActivePass = Boolean(
     visit.qrToken &&
@@ -89,6 +88,7 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
           buildPassMessage({
             visitorName: visit.visitorName,
             plate: visit.plate,
+            additionalPlates: visit.additionalPlates,
             visitType: visit.visitType,
             validUntil: formatDateTime(visit.qrTokenExpiresAt),
             passUrl,
@@ -110,6 +110,7 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
         <QrPass
           token={visit.qrToken}
           plate={visit.plate}
+          additionalPlates={visit.additionalPlates}
           visitorName={visit.visitorName}
           visitType={visit.visitType}
           validUntil={formatDateTime(visit.qrTokenExpiresAt)}
@@ -141,8 +142,21 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
       <GlassCard padding="lg" className="space-y-3">
         <DetailRow icon={UserRound} label="Visitor" value={visit.visitorName} />
         <DetailRow icon={Phone} label="Contact" value={visit.visitorContact} />
-        <DetailRow icon={UserRound} label="Host" value={host ? `${host.name} · ${host.department}` : "—"} />
+        <IdentityDocumentRow identityType={visit.identityType} nric={visit.nric} passportNumber={visit.passportNumber} />
+        {visit.organisation && (
+          <DetailRow icon={Hash} label="Company / organisation" value={visit.organisation} />
+        )}
+        {(visit.additionalPlates?.length ?? 0) > 0 && (
+          <DetailRow icon={Hash} label="Other plates" value={visit.additionalPlates!.join(", ")} />
+        )}
+        <DetailRow icon={UserRound} label="Host" value={visit.host?.name ?? visit.hostStaffId ?? "—"} />
         <DetailRow icon={primaryTimeRow.icon} label={primaryTimeRow.label} value={primaryTimeRow.value} />
+        {visit.visitTime && (
+          <DetailRow icon={Clock} label="Visit time" value={visit.visitTime} />
+        )}
+        {visit.visitorCount && (
+          <DetailRow icon={UserRound} label="Visitors" value={String(visit.visitorCount)} />
+        )}
         {visit.exitTime && (
           <DetailRow icon={DoorOpen} label="Exit" value={formatDateTime(visit.exitTime)} />
         )}
@@ -151,18 +165,51 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
         )}
       </GlassCard>
 
-      {actor.role === "admin" && live && (
-        <VisitorFlagControl visitId={visit.id} initialReason={visit.flagReason} />
+      {(visit.host || visit.hostStaffId || visit.hostDepartment) && (
+        <HostConfirmationCard
+          host={visit.host}
+          fallbackStaffId={visit.hostStaffId}
+          fallbackDepartment={visit.hostDepartment}
+        />
       )}
 
-      {canQuickRegister && (
-        <div className="pt-2">
-          <Link href={`/parking/pre-register?fromVisit=${encodeURIComponent(visit.id)}`}>
-            <Button variant="outline" size="xl" className="w-full">
-              <CalendarPlus className="h-5 w-5" /> Quick re-register
-            </Button>
-          </Link>
-        </div>
+      {(visit.vehicles?.length ?? 0) > 1 && (
+        <GlassCard padding="lg" className="space-y-3">
+          <div>
+            <p className="text-sm font-bold uppercase tracking-wide text-ink-faint">Linked vehicles</p>
+            <p className="text-xs text-ink-faint">Each plate checks in and out independently under this registration.</p>
+          </div>
+          <div className="space-y-2">
+            {visit.vehicles!.map((vehicle) => (
+              <div
+                key={vehicle.id}
+                className="flex items-center justify-between rounded-2xl border border-white/60 bg-white/45 px-3 py-2"
+              >
+                <div>
+                  <p className="font-bold tracking-wide text-ink">{vehicle.plate}</p>
+                  <p className="text-xs text-ink-faint">
+                    {vehicle.isPrimary ? "Primary" : "Linked"} vehicle
+                    {vehicle.checkedIn ? ` · In ${formatDateTime(vehicle.checkedIn)}` : ""}
+                    {vehicle.checkedOut ? ` · Out ${formatDateTime(vehicle.checkedOut)}` : ""}
+                  </p>
+                </div>
+                <Chip
+                  className={
+                    vehicle.status === "checked_in"
+                      ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700"
+                      : undefined
+                  }
+                >
+                  {vehicle.status === "checked_in" ? "Inside" : vehicle.status.replace("_", " ")}
+                </Chip>
+              </div>
+            ))}
+          </div>
+        </GlassCard>
+      )}
+
+      {actor.role === "admin" && live && (
+        <VisitorFlagControl visitId={visit.id} initialReason={visit.flagReason} />
       )}
 
       {/* Entry photo (Azure Blob, MY West) */}
@@ -215,6 +262,48 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
         </Link>
       )}
     </div>
+  );
+}
+
+function HostConfirmationCard({
+  host,
+  fallbackStaffId,
+  fallbackDepartment,
+}: {
+  host?: Employee;
+  fallbackStaffId?: string;
+  fallbackDepartment?: string;
+}) {
+  const phone = host?.phone;
+  return (
+    <GlassCard padding="lg" className="space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-bold uppercase tracking-wide text-ink-faint">Host confirmation</p>
+          <p className="mt-1 text-lg font-bold text-ink">{host?.name ?? fallbackStaffId ?? "Host not found"}</p>
+          <p className="text-sm text-ink-faint">{host?.department ?? fallbackDepartment ?? "Department unavailable"}</p>
+        </div>
+        {phone ? (
+          <a
+            href={`tel:${phone}`}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")}
+          >
+            <PhoneCall className="h-4 w-4" />
+            Call
+          </a>
+        ) : null}
+      </div>
+      <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
+        <div className="rounded-2xl border border-white/60 bg-white/45 px-3 py-2">
+          <p className="text-xs text-ink-faint">Phone</p>
+          <p className="font-semibold text-ink">{phone ?? "No phone number in HR directory"}</p>
+        </div>
+        <div className="rounded-2xl border border-white/60 bg-white/45 px-3 py-2">
+          <p className="text-xs text-ink-faint">Extension</p>
+          <p className="font-semibold text-ink">{host?.extension ?? "—"}</p>
+        </div>
+      </div>
+    </GlassCard>
   );
 }
 

@@ -38,7 +38,7 @@ describe("buildPassMessage", () => {
     const message = buildPassMessage({
       visitorName: "Aisyah",
       plate: "WA 18 K",
-      visitType: "guest",
+      visitType: "visitor",
       validUntil: "24 Aug 2026",
       passUrl: "https://example.test/pass/token",
     });
@@ -46,7 +46,7 @@ describe("buildPassMessage", () => {
     expect(message).toContain("*CryoCord Visitor Pass*");
     expect(message).toContain("Vehicle: WA 18 K");
     expect(message).toContain("Visitor: Aisyah");
-    expect(message).toContain("Type: Guest");
+    expect(message).toContain("Type: Visitor");
     expect(message).toContain("View & save your gate pass: https://example.test/pass/token");
   });
 });

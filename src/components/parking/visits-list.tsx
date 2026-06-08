@@ -22,7 +22,14 @@ export function VisitsList({ visits, nowIso }: { visits: Visit[]; nowIso: string
     return all.filter((v) => {
       if (filter !== "all" && v.status !== filter) return false;
       if (!q) return true;
-      return normalisePlate(v.plate).includes(q) || v.visitorName.toUpperCase().includes(query.toUpperCase());
+      const additionalMatch = (v.additionalPlates ?? []).some((plate) => normalisePlate(plate).includes(q));
+      const vehicleMatch = (v.vehicles ?? []).some((vehicle) => normalisePlate(vehicle.plate).includes(q));
+      return (
+        additionalMatch ||
+        vehicleMatch ||
+        normalisePlate(v.plate).includes(q) ||
+        v.visitorName.toUpperCase().includes(query.toUpperCase())
+      );
     });
   }, [all, query, filter]);
 
@@ -57,11 +64,11 @@ export function VisitsList({ visits, nowIso }: { visits: Visit[]; nowIso: string
         ))}
       </div>
 
-      <p className="px-1 text-xs font-semibold text-ink-faint">{filtered.length} visits</p>
+      <p className="px-1 text-xs font-semibold text-ink-faint">{filtered.length} records</p>
 
       <div className="space-y-2.5">
         {filtered.map((v) => (
-          <VisitRow key={v.id} visit={v} now={now} showQuickRegister />
+          <VisitRow key={`${v.id}:${v.vehicleId ?? "registration"}`} visit={v} now={now} />
         ))}
         {filtered.length === 0 && (
           <p className="py-10 text-center text-sm text-ink-faint">No visits match.</p>

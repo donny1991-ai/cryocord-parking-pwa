@@ -26,7 +26,6 @@ function revalidateVehiclePages() {
     revalidatePath("/parking/vehicles");
     revalidatePath("/parking/admin");
     revalidatePath("/parking/entry");
-    revalidatePath("/parking/pre-register");
   } catch {
     // Direct test invocation does not always provide Next's static generation store.
   }

@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { BadgeCheck, Check, CheckCircle2, Pencil, Send, ShieldCheck, Sparkles, X } from "lucide-react";
+import { BadgeCheck, Check, CheckCircle2, Pencil, Phone, Search, Send, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Input, Select, Field } from "@/components/ui/input";
+import { Input, Select, Field, Textarea } from "@/components/ui/input";
 import { Chip } from "@/components/ui/badge";
 import { PlateCapture } from "./plate-capture";
 import { QrPass } from "./qr-pass";
@@ -30,16 +30,45 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
 
   const [visitorName, setVisitorName] = useState("");
   const [visitorContact, setVisitorContact] = useState("");
-  const [visitType, setVisitType] = useState<VisitType>("guest");
+  const [organisation, setOrganisation] = useState("");
+  const [visitType, setVisitType] = useState<VisitType>("visitor");
   const [purpose, setPurpose] = useState<Purpose>("meeting");
+  const [visitTime, setVisitTime] = useState("");
+  const [visitorCount, setVisitorCount] = useState("");
   const [purposeNotes, setPurposeNotes] = useState("");
+  const [identityType, setIdentityType] = useState<"nric" | "passport">("nric");
+  const [nric, setNric] = useState("");
+  const [passportNumber, setPassportNumber] = useState("");
   const [hostStaffId, setHostStaffId] = useState("");
-  const [showIc, setShowIc] = useState(false);
-  const [visitorIc, setVisitorIc] = useState("");
+  const [hostQuery, setHostQuery] = useState("");
+  const [hostSearchOpen, setHostSearchOpen] = useState(false);
+  const selectedHost = useMemo(
+    () => employees.find((employee) => employee.staffId === hostStaffId),
+    [employees, hostStaffId],
+  );
+  const hostResults = useMemo(() => {
+    const query = hostQuery.trim().toLowerCase();
+    const source = query
+      ? employees.filter((employee) =>
+        [
+          employee.name,
+          employee.email,
+          employee.staffId,
+          employee.department,
+          employee.phone,
+          employee.extension,
+        ].some((value) => String(value ?? "").toLowerCase().includes(query)),
+      )
+      : employees;
+
+    return source.slice(0, 6);
+  }, [employees, hostQuery]);
   const origin = typeof window === "undefined" ? "" : window.location.origin;
   const [issued, setIssued] = useState<{ id: string; token: string; tokenExpiresAt: string } | null>(null);
   const [issuing, setIssuing] = useState(false);
   const [issueError, setIssueError] = useState<string | null>(null);
+  const remarksRequired = visitType === "other" || purpose === "other";
+  const hasIdentityDocument = identityType === "nric" ? nric.trim() : passportNumber.trim();
 
   function prefillKnownVehicle(p: string) {
     const normalised = normalisePlate(p);
@@ -77,7 +106,18 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
     prefillKnownVehicle(nextPlate);
   }
 
-  const canIssue = plate && visitorName.trim() && visitorContact.trim() && (purpose !== "other" || purposeNotes.trim());
+  const canIssue =
+    plate &&
+    visitorName.trim() &&
+    visitorContact.trim() &&
+    hasIdentityDocument &&
+    (!remarksRequired || purposeNotes.trim());
+
+  function selectHost(host: Employee) {
+    setHostStaffId(host.staffId);
+    setHostQuery(host.name);
+    setHostSearchOpen(false);
+  }
 
   async function issuePass() {
     if (!canIssue) return;
@@ -92,12 +132,18 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
         body: JSON.stringify({
           name: visitorName,
           phoneNumber: visitorContact,
+          organisation: organisation || undefined,
+          identityType: hasIdentityDocument ? identityType : undefined,
+          nric: identityType === "nric" && hasIdentityDocument ? nric : undefined,
+          passportNumber: identityType === "passport" && hasIdentityDocument ? passportNumber : undefined,
           vehicleNumber: plate,
           typeCode: visitType,
           purpose,
+          visitTime: visitTime || undefined,
+          visitorCount: visitorCount || undefined,
           remarks: purposeNotes || undefined,
           hostStaffId: hostStaffId || undefined,
-          hostDepartment: employees.find((employee) => employee.staffId === hostStaffId)?.department,
+          hostDepartment: selectedHost?.department,
           flagReason: known?.blacklisted ? "Plate matched the vehicle blacklist on entry." : undefined,
           checkInOnCreate: true,
         }),
@@ -283,6 +329,14 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
           />
         </Field>
 
+        <Field label="Company / organisation">
+          <Input
+            value={organisation}
+            onChange={(e) => setOrganisation(e.target.value)}
+            placeholder="Company or organisation"
+          />
+        </Field>
+
         <div className="grid grid-cols-2 gap-3">
           <Field label="Visit type" required>
             <Select value={visitType} onChange={(e) => setVisitType(e.target.value as VisitType)}>
@@ -300,29 +354,162 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
           </Field>
         </div>
 
-        {(purpose === "other") && (
-          <Field label="Purpose notes" required hint="Required when purpose is Other.">
-            <Input value={purposeNotes} onChange={(e) => setPurposeNotes(e.target.value)} placeholder="Describe the purpose" />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Visit time">
+            <Input value={visitTime} onChange={(e) => setVisitTime(e.target.value)} type="time" />
           </Field>
-        )}
+          <Field label="Number of visitors">
+            <Input
+              value={visitorCount}
+              onChange={(e) => setVisitorCount(e.target.value)}
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={999}
+              placeholder="e.g. 3"
+            />
+          </Field>
+        </div>
 
-        <Field label="Host" hint="Who they're visiting (from the employee directory).">
-          <Select value={hostStaffId} onChange={(e) => setHostStaffId(e.target.value)}>
-            <option value="">— Select host —</option>
-            {employees.map((e) => (
-              <option key={e.staffId} value={e.staffId}>{e.name} · {e.department}</option>
-            ))}
-          </Select>
+        <Field
+          label="Remarks"
+          required={remarksRequired}
+          hint={remarksRequired ? "Required when visit type or purpose is Other." : "Optional notes for the visit."}
+        >
+          <Textarea
+            value={purposeNotes}
+            onChange={(e) => setPurposeNotes(e.target.value)}
+            placeholder="Add notes for the guard, if needed"
+            required={remarksRequired}
+          />
         </Field>
 
-        {/* PII minimisation — IC off by default */}
-        {!showIc ? (
-          <button onClick={() => setShowIc(true)} className="text-xs font-semibold text-brand">
-            + Add IC number (optional)
-          </button>
+        <div className="space-y-1.5">
+          <span className="block text-sm font-semibold text-ink-soft">Host</span>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+            <Input
+              value={hostQuery}
+              onChange={(event) => {
+                setHostQuery(event.target.value);
+                setHostStaffId("");
+                setHostSearchOpen(true);
+              }}
+              onFocus={() => setHostSearchOpen(true)}
+              placeholder="Search host name, email, department"
+              className="pl-11"
+              role="combobox"
+              aria-label="Host"
+              aria-expanded={hostSearchOpen}
+              aria-controls="host-search-results"
+              aria-autocomplete="list"
+            />
+            {hostQuery && (
+              <button
+                type="button"
+                aria-label="Clear host"
+                className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-ink-faint hover:bg-white/70 hover:text-brand"
+                onClick={() => {
+                  setHostQuery("");
+                  setHostStaffId("");
+                  setHostSearchOpen(false);
+                }}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <span className="block text-xs text-ink-faint">Search the HR employee directory before confirming the visitor.</span>
+
+          {hostSearchOpen && (
+            <div
+              id="host-search-results"
+              className="overflow-hidden rounded-2xl border border-white/70 bg-white/90 shadow-lift backdrop-blur-md"
+            >
+              {hostResults.length > 0 ? (
+                hostResults.map((host) => (
+                  <button
+                    key={host.staffId}
+                    type="button"
+                    className="flex w-full items-center gap-3 px-3.5 py-3 text-left transition hover:bg-brand/5 focus:bg-brand/5 focus:outline-none"
+                    onClick={() => selectHost(host)}
+                  >
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-ink-faint/10 text-ink-soft">
+                      <UserRound className="h-5 w-5" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-bold text-ink">{host.name}</span>
+                      <span className="block truncate text-xs font-semibold text-ink-soft">{host.department}</span>
+                      <span className="block truncate text-xs text-ink-faint">{host.email ?? "No email in HR directory"}</span>
+                    </span>
+                    <span className="hidden shrink-0 rounded-full bg-ink-faint/10 px-2.5 py-1 text-xs font-semibold text-ink-soft sm:inline-flex">
+                      {host.staffId}
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <p className="px-3.5 py-3 text-sm text-ink-faint">No matching host found.</p>
+              )}
+            </div>
+          )}
+
+        </div>
+
+        {selectedHost && (
+          <div className="rounded-2xl border border-white/60 bg-white/45 px-3.5 py-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Host contact</p>
+            <p className="mt-1 text-sm font-bold text-ink">{selectedHost.name}</p>
+            <p className="text-xs text-ink-faint">{selectedHost.department}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-ink-soft">
+              {selectedHost.phone ? (
+                <a href={`tel:${selectedHost.phone}`} className="inline-flex items-center gap-1 text-brand">
+                  <Phone className="h-3.5 w-3.5" />
+                  {selectedHost.phone}
+                </a>
+              ) : (
+                <span>No phone number in HR directory</span>
+              )}
+              {selectedHost.extension && <span>Ext {selectedHost.extension}</span>}
+            </div>
+          </div>
+        )}
+
+        <Field label="Identity document" required hint="Choose NRIC for Malaysians, passport for non-Malaysians.">
+          <div className="grid grid-cols-2 gap-2 rounded-2xl bg-white/40 p-1">
+            <button
+              type="button"
+              className={cn(
+                "h-10 rounded-xl text-sm font-bold transition",
+                identityType === "nric" ? "bg-white text-brand shadow-sm" : "text-ink-soft",
+              )}
+              onClick={() => setIdentityType("nric")}
+            >
+              NRIC
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "h-10 rounded-xl text-sm font-bold transition",
+                identityType === "passport" ? "bg-white text-brand shadow-sm" : "text-ink-soft",
+              )}
+              onClick={() => setIdentityType("passport")}
+            >
+              Passport
+            </button>
+          </div>
+        </Field>
+
+        {identityType === "nric" ? (
+          <Field label="NRIC number" required hint="Format: YYMMDD-PB-####.">
+            <Input value={nric} onChange={(e) => setNric(e.target.value)} placeholder="900101-14-1234" />
+          </Field>
         ) : (
-          <Field label="IC number (optional)" hint="PDPA-sensitive — collect only if required.">
-            <Input value={visitorIc} onChange={(e) => setVisitorIc(e.target.value)} placeholder="######-##-####" />
+          <Field label="Passport number" required>
+            <Input
+              value={passportNumber}
+              onChange={(e) => setPassportNumber(e.target.value.toUpperCase())}
+              placeholder="Passport number"
+            />
           </Field>
         )}
       </GlassCard>

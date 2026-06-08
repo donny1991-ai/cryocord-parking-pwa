@@ -1,5 +1,6 @@
 import { EntitySchema } from "typeorm";
 import type { VisitorTypeEntity } from "./visitor-type.entity";
+import type { VisitorVehicleEntity } from "./visitor-vehicle.entity";
 
 export type VisitorStatus = "pending" | "checked_in" | "checked_out" | "cancelled";
 
@@ -7,8 +8,14 @@ export interface VisitorEntity {
   id: string;
   name: string;
   phoneNumber: string;
+  organisation: string | null;
+  identityType: "nric" | "passport" | null;
+  nric: string | null;
+  passportNumber: string | null;
   vehicleNumber: string;
   vehicleNumberNormalised: string;
+  additionalVehicleNumbers: string[];
+  vehicles?: VisitorVehicleEntity[];
   checkedIn: Date | null;
   checkedOut: Date | null;
   typeId: number;
@@ -16,6 +23,8 @@ export interface VisitorEntity {
   remarks: string | null;
   purpose: string;
   visitDate: string | null;
+  visitTime: string | null;
+  visitorCount: number | null;
   hostStaffId: string | null;
   hostDepartment: string | null;
   flagReason: string | null;
@@ -49,6 +58,28 @@ export const VisitorSchema = new EntitySchema<VisitorEntity>({
       type: String,
       length: 40,
     },
+    organisation: {
+      type: String,
+      length: 160,
+      nullable: true,
+    },
+    identityType: {
+      name: "identity_type",
+      type: String,
+      length: 16,
+      nullable: true,
+    },
+    nric: {
+      type: String,
+      length: 14,
+      nullable: true,
+    },
+    passportNumber: {
+      name: "passport_number",
+      type: String,
+      length: 20,
+      nullable: true,
+    },
     vehicleNumber: {
       name: "vehicle_number",
       type: String,
@@ -58,6 +89,12 @@ export const VisitorSchema = new EntitySchema<VisitorEntity>({
       name: "vehicle_number_normalised",
       type: String,
       length: 32,
+    },
+    additionalVehicleNumbers: {
+      name: "additional_vehicle_numbers",
+      type: "text",
+      array: true,
+      default: () => "ARRAY[]::text[]",
     },
     checkedIn: {
       name: "checked_in",
@@ -85,6 +122,16 @@ export const VisitorSchema = new EntitySchema<VisitorEntity>({
     visitDate: {
       name: "visit_date",
       type: "date",
+      nullable: true,
+    },
+    visitTime: {
+      name: "visit_time",
+      type: "time",
+      nullable: true,
+    },
+    visitorCount: {
+      name: "visitor_count",
+      type: "integer",
       nullable: true,
     },
     hostStaffId: {
@@ -165,6 +212,11 @@ export const VisitorSchema = new EntitySchema<VisitorEntity>({
         referencedColumnName: "id",
       },
       onDelete: "RESTRICT",
+    },
+    vehicles: {
+      type: "one-to-many",
+      target: "VisitorVehicle",
+      inverseSide: "visitor",
     },
   },
 });

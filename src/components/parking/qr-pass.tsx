@@ -14,6 +14,7 @@ import type { VisitType } from "@/lib/enums";
 export function QrPass({
   token,
   plate,
+  additionalPlates = [],
   visitorName,
   visitType,
   validUntil,
@@ -21,6 +22,7 @@ export function QrPass({
 }: {
   token: string;
   plate: string;
+  additionalPlates?: string[];
   visitorName: string;
   visitType: VisitType;
   validUntil: string;
@@ -44,6 +46,11 @@ export function QrPass({
 
       <div className="mt-4 space-y-1">
         <p className="text-2xl font-bold tracking-wide text-ink">{plate}</p>
+        {additionalPlates.length > 0 && (
+          <p className="mx-auto max-w-[17rem] text-xs font-semibold leading-relaxed text-ink-faint">
+            Also covers {additionalPlates.join(", ")}
+          </p>
+        )}
         <p className="text-sm text-ink-soft">{visitorName}</p>
         <div className="flex items-center justify-center gap-2 pt-1">
           <Chip tone="brand">{visitTypeLabel(visitType)}</Chip>

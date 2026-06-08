@@ -1,4 +1,4 @@
-import { SignJWT, jwtVerify } from "jose";
+import { SignJWT, decodeJwt, jwtVerify } from "jose";
 
 /**
  * QR pass = OPAQUE reference token (ADR D5). The payload carries only a random
@@ -19,6 +19,10 @@ export interface PassClaims {
   visitId: string;
   tokenId?: string;
   expiresAt?: string;
+}
+
+export interface VerifyVisitTokenOptions {
+  ignoreExpiration?: boolean;
 }
 
 export function assertQrSigningConfigured() {
@@ -74,10 +78,32 @@ export async function signVisitToken(
 }
 
 /** Verify + decode a scanned pass token. Throws if invalid/expired. */
-export async function verifyVisitToken(token: string): Promise<PassClaims> {
+export async function verifyVisitToken(
+  token: string,
+  options: VerifyVisitTokenOptions = {},
+): Promise<PassClaims> {
   const { payload } = await jwtVerify(token, getSigningKey(), {
     issuer: "cryocord-parking",
+    ...(options.ignoreExpiration ? { currentDate: new Date(0) } : {}),
   });
+  if (typeof payload.visitId !== "string") {
+    throw new Error("Pass token missing visitId");
+  }
+  return {
+    visitId: payload.visitId,
+    tokenId: typeof payload.jti === "string" ? payload.jti : undefined,
+    expiresAt: typeof payload.exp === "number" ? new Date(payload.exp * 1000).toISOString() : undefined,
+  };
+}
+
+/**
+ * Decode the opaque reference claims without trusting the JWT signature.
+ * This is only for routing a token to its DB record. Callers may compare the
+ * decoded jti with the stored DB token id for key-rotation resilience, but must
+ * not trust mutable claims such as exp unless verification succeeded.
+ */
+export function decodeVisitTokenReference(token: string): PassClaims {
+  const payload = decodeJwt(token);
   if (typeof payload.visitId !== "string") {
     throw new Error("Pass token missing visitId");
   }

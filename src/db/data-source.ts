@@ -2,11 +2,14 @@ import "reflect-metadata";
 import dotenv from "dotenv";
 import { DataSource } from "typeorm";
 import { AuthOtpSchema } from "./entities/auth-otp.entity";
+import { HrDepartmentSchema } from "./entities/hr-department.entity";
+import { HrUserSchema } from "./entities/hr-user.entity";
 import { ParkingSettingSchema } from "./entities/parking-setting.entity";
 import { ParkingUserSchema } from "./entities/parking-user.entity";
 import { VisitorScanEventSchema } from "./entities/visitor-scan-event.entity";
 import { VisitorSchema } from "./entities/visitor.entity";
 import { VisitorTypeSchema } from "./entities/visitor-type.entity";
+import { VisitorVehicleSchema } from "./entities/visitor-vehicle.entity";
 import { VehicleSchema } from "./entities/vehicle.entity";
 import { assertSafeTestDatabaseUrl, getConfiguredTestDatabaseUrl } from "./test-guard";
 
@@ -48,10 +51,13 @@ export const AppDataSource = new DataSource({
   url: databaseUrl,
   entities: [
     AuthOtpSchema,
+    HrDepartmentSchema,
+    HrUserSchema,
     ParkingSettingSchema,
     ParkingUserSchema,
     VisitorTypeSchema,
     VisitorSchema,
+    VisitorVehicleSchema,
     VisitorScanEventSchema,
     VehicleSchema,
   ],

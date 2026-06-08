@@ -45,8 +45,9 @@ interface DemoVisit {
   id: string;
   name: string;
   phone: string;
+  organisation?: string;
   plate: string;
-  typeCode: "guest" | "vendor" | "client" | "staff";
+  typeCode: "visitor" | "vendor" | "courier" | "patient" | "staff" | "contractor" | "vip" | "other";
   purpose: string;
   remarks?: string;
   hostStaffId?: string;
@@ -73,7 +74,7 @@ const demoVisits: DemoVisit[] = [
     plate: "JKL 4521",
     name: "Marcus Chong",
     phone: "+60 16-998 1020",
-    typeCode: "guest",
+    typeCode: "visitor",
     purpose: "meeting",
     hostStaffId: "EMP-0088",
     hostDepartment: "Sales Operations",
@@ -84,7 +85,8 @@ const demoVisits: DemoVisit[] = [
     plate: "VBN 9087",
     name: "GDex Courier",
     phone: "+60 11-2233 4455",
-    typeCode: "vendor",
+    organisation: "GDex",
+    typeCode: "courier",
     purpose: "delivery",
     hostDepartment: "Human Resources",
     checkedInMinutesAgo: 12,
@@ -94,7 +96,7 @@ const demoVisits: DemoVisit[] = [
     plate: "WMQ 7781",
     name: "Tan Family",
     phone: "+60 13-444 5566",
-    typeCode: "client",
+    typeCode: "patient",
     purpose: "consultation",
     remarks: "Cord blood consultation appointment.",
     hostStaffId: "EMP-0142",
@@ -106,19 +108,20 @@ const demoVisits: DemoVisit[] = [
     plate: "BMT 77",
     name: "Cool-Air HVAC Services",
     phone: "+60 19-700 8800",
+    organisation: "Cool-Air HVAC Services",
     typeCode: "vendor",
     purpose: "maintenance",
-    remarks: "Chiller servicing at Lab cryo store.",
+    remarks: "Chiller servicing at Lab cryo store. Overstay sample for admin review.",
     hostStaffId: "EMP-0405",
     hostDepartment: "R&D",
-    checkedInMinutesAgo: 330,
+    checkedInMinutesAgo: 1560,
   },
   {
     id: "00000000-0000-4000-8000-000000001006",
     plate: "WXX 6666",
     name: "Unverified",
     phone: "+60 10-000 0000",
-    typeCode: "guest",
+    typeCode: "visitor",
     purpose: "other",
     remarks: "Escalated to duty manager.",
     flagReason: "Plate matched the blacklist on entry.",
@@ -129,7 +132,8 @@ const demoVisits: DemoVisit[] = [
     plate: "PMR 1188",
     name: "Pathlab Sample Runner",
     phone: "+60 17-321 9000",
-    typeCode: "vendor",
+    organisation: "Pathlab",
+    typeCode: "courier",
     purpose: "sample_delivery",
     hostStaffId: "EMP-0142",
     hostDepartment: "Laboratory",
@@ -140,7 +144,8 @@ const demoVisits: DemoVisit[] = [
     plate: "VIP 1",
     name: "Datuk Seri A. Rahman",
     phone: "+60 12-000 0001",
-    typeCode: "client",
+    organisation: "Rahman Holdings",
+    typeCode: "vip",
     purpose: "meeting",
     hostStaffId: "EMP-0211",
     hostDepartment: "Management",
@@ -152,7 +157,8 @@ const demoVisits: DemoVisit[] = [
     plate: "JHQ 2210",
     name: "BuildRight Contractors",
     phone: "+60 14-556 7788",
-    typeCode: "vendor",
+    organisation: "BuildRight Contractors",
+    typeCode: "contractor",
     purpose: "maintenance",
     hostStaffId: "EMP-0319",
     hostDepartment: "Finance",
@@ -250,6 +256,7 @@ export async function seedDemoJourney(manager: EntityManager) {
           "id",
           "name",
           "phone_number",
+          "organisation",
           "vehicle_number",
           "vehicle_number_normalised",
           "checked_in",
@@ -268,12 +275,13 @@ export async function seedDemoJourney(manager: EntityManager) {
           "updated_at"
         )
         VALUES (
-          $1, $2, $3, $4, $5, ${checkedIn}, ${checkedOut}, $6, $7, $8, $9, $10, $11, $12,
-          $13, $13, ${visit.checkedOutMinutesAgo ? "$13" : "NULL"}, ${checkedIn}, now()
+          $1, $2, $3, $4, $5, $6, ${checkedIn}, ${checkedOut}, $7, $8, $9, $10, $11, $12, $13,
+          $14, $14, ${visit.checkedOutMinutesAgo ? "$14" : "NULL"}, ${checkedIn}, now()
         )
         ON CONFLICT ("id") DO UPDATE SET
           "name" = EXCLUDED."name",
           "phone_number" = EXCLUDED."phone_number",
+          "organisation" = EXCLUDED."organisation",
           "vehicle_number" = EXCLUDED."vehicle_number",
           "vehicle_number_normalised" = EXCLUDED."vehicle_number_normalised",
           "checked_in" = EXCLUDED."checked_in",
@@ -294,6 +302,7 @@ export async function seedDemoJourney(manager: EntityManager) {
         visit.id,
         visit.name,
         visit.phone,
+        visit.organisation ?? null,
         visit.plate,
         normalisePlate(visit.plate),
         typeId,

@@ -21,6 +21,7 @@ export function toWaNumber(raw: string): string | null {
 export function buildPassMessage(opts: {
   visitorName: string;
   plate: string;
+  additionalPlates?: string[];
   visitType: VisitType;
   validUntil: string;
   passUrl?: string;
@@ -28,6 +29,7 @@ export function buildPassMessage(opts: {
   const lines = [
     "*CryoCord Visitor Pass*",
     `Vehicle: ${opts.plate}`,
+    ...(opts.additionalPlates?.length ? [`Other plates: ${opts.additionalPlates.join(", ")}`] : []),
     `Visitor: ${opts.visitorName}`,
     `Type: ${visitTypeLabel(opts.visitType)}`,
     `Valid until: ${opts.validUntil}`,

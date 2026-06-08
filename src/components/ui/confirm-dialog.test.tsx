@@ -32,6 +32,14 @@ describe("ConfirmDialog", () => {
     expect(screen.getByText("Cancelling will disable the shared QR pass link.")).toBeInTheDocument();
   });
 
+  it("centers the dialog in the viewport", () => {
+    renderDialog();
+
+    const backdrop = screen.getByRole("presentation");
+    expect(backdrop).toHaveClass("fixed", "inset-0", "items-center", "justify-center");
+    expect(backdrop).not.toHaveClass("items-end");
+  });
+
   it("closes when the cancel button is pressed", async () => {
     const user = userEvent.setup();
     const { onOpenChange } = renderDialog();
