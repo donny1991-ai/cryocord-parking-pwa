@@ -1,5 +1,5 @@
 import "server-only";
-import { VisitorSchema } from "@/db/entities";
+import { VisitorScanEventSchema, VisitorSchema } from "@/db/entities";
 import { getParkingDataSource } from "@/db/client";
 import { AuthError, type AuthenticatedParkingUser } from "@/lib/server/auth";
 
@@ -31,26 +31,65 @@ export async function flagVisitor(id: string, input: FlagVisitorInput, actor: Au
   id = assertUuid(id);
   const flagReason = assertFlagReason(input.flagReason);
   const ds = await getParkingDataSource();
-  const visitor = await ds.manager.findOneBy(VisitorSchema, { id });
-  if (!visitor) {
-    throw new AuthError("Visitor was not found.", 404);
-  }
-  if (visitor.status !== "checked_in" || visitor.checkedOut) {
-    throw new AuthError("Only checked-in visitors can be flagged.", 400);
-  }
 
-  await ds.manager.update(VisitorSchema, { id }, { flagReason, flaggedBy: actor.id, flaggedAt: new Date() });
-  return { id, flagReason };
+  return ds.transaction(async (manager) => {
+    const visitor = await manager.findOneBy(VisitorSchema, { id });
+    if (!visitor) {
+      throw new AuthError("Visitor was not found.", 404);
+    }
+    if (visitor.status !== "checked_in" || visitor.checkedOut) {
+      throw new AuthError("Only checked-in registrations can be marked for review.", 400);
+    }
+
+    const flaggedAt = new Date();
+    const previousReason = visitor.flagReason?.trim() || null;
+    await manager.update(VisitorSchema, { id }, { flagReason, flaggedBy: actor.id, flaggedAt });
+    await manager.insert(VisitorScanEventSchema, {
+      visitorId: id,
+      eventType: "details_updated",
+      guardId: actor.id,
+      source: "pwa-admin",
+      metadata: {
+        reason: previousReason ? "visit_review_reason_updated" : "visit_marked_for_review",
+        flagReason,
+        ...(previousReason ? { previousReason } : {}),
+      },
+    });
+
+    return { id, flagReason, flaggedBy: actor.id, flaggedAt: flaggedAt.toISOString() };
+  });
 }
 
-export async function clearVisitorFlag(id: string) {
+export async function clearVisitorFlag(id: string, actor: AuthenticatedParkingUser) {
   id = assertUuid(id);
   const ds = await getParkingDataSource();
-  const visitor = await ds.manager.findOneBy(VisitorSchema, { id });
-  if (!visitor) {
-    throw new AuthError("Visitor was not found.", 404);
-  }
 
-  await ds.manager.update(VisitorSchema, { id }, { flagReason: null, flaggedBy: null, flaggedAt: null });
-  return { id, flagReason: null };
+  return ds.transaction(async (manager) => {
+    const visitor = await manager.findOneBy(VisitorSchema, { id });
+    if (!visitor) {
+      throw new AuthError("Visitor was not found.", 404);
+    }
+    if (visitor.status !== "checked_in" || visitor.checkedOut) {
+      throw new AuthError("Only checked-in registrations can have a review flag cleared.", 400);
+    }
+
+    const previousReason = visitor.flagReason?.trim() || null;
+    if (!previousReason) {
+      return { id, flagReason: null, flaggedBy: null, flaggedAt: null };
+    }
+
+    await manager.update(VisitorSchema, { id }, { flagReason: null, flaggedBy: null, flaggedAt: null });
+    await manager.insert(VisitorScanEventSchema, {
+      visitorId: id,
+      eventType: "details_updated",
+      guardId: actor.id,
+      source: "pwa-admin",
+      metadata: {
+        reason: "visit_review_flag_cleared",
+        previousReason,
+      },
+    });
+
+    return { id, flagReason: null, flaggedBy: null, flaggedAt: null };
+  });
 }

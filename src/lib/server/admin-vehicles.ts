@@ -1,5 +1,5 @@
 import "server-only";
-import { VehicleSchema, type VehicleEntity } from "@/db/entities";
+import { VehicleSchema, VisitorVehicleSchema, type VehicleEntity } from "@/db/entities";
 import { getParkingDataSource } from "@/db/client";
 import { AuthError } from "@/lib/server/auth";
 import { OWNER_TYPES, type OwnerType } from "@/lib/enums";
@@ -142,4 +142,26 @@ export async function updateParkingVehicle(id: string, input: UpdateVehicleInput
 
   await ds.manager.update(VehicleSchema, { id }, patch);
   return toDto(await ds.manager.findOneByOrFail(VehicleSchema, { id }));
+}
+
+export async function deleteParkingVehicle(id: string) {
+  id = assertUuid(id);
+  const ds = await getParkingDataSource();
+  const existing = await ds.manager.findOneBy(VehicleSchema, { id });
+  if (!existing) {
+    throw new AuthError("Vehicle was not found.", 404);
+  }
+
+  const activeVisitCount = await ds.manager.count(VisitorVehicleSchema, {
+    where: {
+      vehicleNumberNormalised: existing.plateNormalised,
+      status: "checked_in",
+    },
+  });
+  if (activeVisitCount > 0) {
+    throw new AuthError("Vehicle cannot be removed while it is currently checked in.", 400);
+  }
+
+  await ds.manager.delete(VehicleSchema, { id });
+  return { id };
 }

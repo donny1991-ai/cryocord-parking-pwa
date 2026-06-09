@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { BadgeCheck, Check, CheckCircle2, Pencil, Phone, Search, Send, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
+import { BadgeCheck, Ban, Check, CheckCircle2, Pencil, Phone, Search, Send, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input, Select, Field, Textarea } from "@/components/ui/input";
@@ -69,6 +69,7 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
   const [issueError, setIssueError] = useState<string | null>(null);
   const remarksRequired = visitType === "other" || purpose === "other";
   const hasIdentityDocument = identityType === "nric" ? nric.trim() : passportNumber.trim();
+  const blockedVehicle = known?.blacklisted ? known : null;
 
   function prefillKnownVehicle(p: string) {
     const normalised = normalisePlate(p);
@@ -111,6 +112,7 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
     visitorName.trim() &&
     visitorContact.trim() &&
     hasIdentityDocument &&
+    !blockedVehicle &&
     (!remarksRequired || purposeNotes.trim());
 
   function selectHost(host: Employee) {
@@ -121,6 +123,10 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
 
   async function issuePass() {
     if (!canIssue) return;
+    if (blockedVehicle) {
+      setIssueError("This vehicle is blacklisted. Registration is blocked. Contact the duty manager.");
+      return;
+    }
 
     setIssuing(true);
     setIssueError(null);
@@ -144,7 +150,6 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
           remarks: purposeNotes || undefined,
           hostStaffId: hostStaffId || undefined,
           hostDepartment: selectedHost?.department,
-          flagReason: known?.blacklisted ? "Plate matched the vehicle blacklist on entry." : undefined,
           checkInOnCreate: true,
         }),
       });
@@ -303,18 +308,27 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
         )}
       </GlassCard>
 
-      {known && (
+      {blockedVehicle ? (
+        <div className="rounded-2xl border border-brand/25 bg-brand/10 px-3.5 py-3 text-sm text-brand">
+          <div className="flex items-center gap-2 font-bold">
+            <Ban className="h-4 w-4 shrink-0" />
+            Vehicle is blacklisted. Registration is blocked.
+          </div>
+          <p className="mt-1 text-xs font-semibold text-brand/85">
+            Do not issue a visitor pass for {blockedVehicle.plate}. Contact the duty manager for clearance.
+          </p>
+          {blockedVehicle.notes && (
+            <p className="mt-2 rounded-2xl bg-white/60 px-3 py-2 text-xs font-semibold text-ink-soft">
+              Reason: {blockedVehicle.notes}
+            </p>
+          )}
+        </div>
+      ) : known ? (
         <div className="flex items-center gap-2 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-3.5 py-2.5 text-sm text-emerald-700">
           <BadgeCheck className="h-4 w-4 shrink-0" />
-          <span>
-            {known.blacklisted ? (
-              <span className="font-bold text-brand">Blacklisted vehicle — escalate to duty manager.</span>
-            ) : (
-              <>Known vehicle — details pre-filled from registry.</>
-            )}
-          </span>
+          <span>Known allowed vehicle — not blacklisted; details pre-filled from registry.</span>
         </div>
-      )}
+      ) : null}
 
       <GlassCard padding="lg" className="space-y-4">
         <Field label="Visitor name" required>
@@ -526,6 +540,12 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
       {issueError && (
         <p className="rounded-2xl bg-brand/10 px-3 py-2 text-center text-xs font-semibold text-brand">
           {issueError}
+        </p>
+      )}
+
+      {blockedVehicle && (
+        <p className="rounded-2xl bg-brand/10 px-3 py-2 text-center text-xs font-bold text-brand">
+          Entry logging is disabled because this plate is blacklisted.
         </p>
       )}
 

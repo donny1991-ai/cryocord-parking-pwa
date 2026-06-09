@@ -29,6 +29,15 @@
     "supabaseJwtSecret": {
       "value": "${SUPABASE_JWT_SECRET=}"
     },
+    "supabaseUrl": {
+      "value": "${SUPABASE_URL=}"
+    },
+    "supabaseServiceRoleKey": {
+      "value": "${SUPABASE_SERVICE_ROLE_KEY=}"
+    },
+    "parkingEntrySnapshotBucket": {
+      "value": "${PARKING_ENTRY_SNAPSHOT_BUCKET=parking-entry-snapshots}"
+    },
     "authOtpSecret": {
       "value": "${AUTH_OTP_SECRET=}"
     },

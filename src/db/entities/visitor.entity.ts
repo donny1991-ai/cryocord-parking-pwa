@@ -30,6 +30,11 @@ export interface VisitorEntity {
   flagReason: string | null;
   flaggedBy: string | null;
   flaggedAt: Date | null;
+  entryPhotoBucket: string | null;
+  entryPhotoPath: string | null;
+  entryPhotoContentType: string | null;
+  entryPhotoCapturedAt: Date | null;
+  entryPhotoCapturedBy: string | null;
   qrTokenJti: string | null;
   status: VisitorStatus;
   createdBy: string | null;
@@ -159,6 +164,33 @@ export const VisitorSchema = new EntitySchema<VisitorEntity>({
     flaggedAt: {
       name: "flagged_at",
       type: "timestamptz",
+      nullable: true,
+    },
+    entryPhotoBucket: {
+      name: "entry_photo_bucket",
+      type: String,
+      length: 120,
+      nullable: true,
+    },
+    entryPhotoPath: {
+      name: "entry_photo_path",
+      type: "text",
+      nullable: true,
+    },
+    entryPhotoContentType: {
+      name: "entry_photo_content_type",
+      type: String,
+      length: 80,
+      nullable: true,
+    },
+    entryPhotoCapturedAt: {
+      name: "entry_photo_captured_at",
+      type: "timestamptz",
+      nullable: true,
+    },
+    entryPhotoCapturedBy: {
+      name: "entry_photo_captured_by",
+      type: "uuid",
       nullable: true,
     },
     qrTokenJti: {

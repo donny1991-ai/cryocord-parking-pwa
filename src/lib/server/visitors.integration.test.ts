@@ -6,9 +6,13 @@ import {
   DELETE as clearVisitorFlagEndpoint,
   PUT as flagVisitorEndpoint,
 } from "@/app/api/admin/visitors/[id]/flag/route";
+import {
+  DELETE as deleteVehicleEndpoint,
+  PATCH as updateVehicleEndpoint,
+} from "@/app/api/admin/vehicles/[id]/route";
 import { POST as cancelVisitorEndpoint } from "@/app/api/visitors/[id]/cancel/route";
 import { AppDataSource } from "@/db/data-source";
-import { VisitorScanEventSchema, VisitorSchema, VisitorVehicleSchema } from "@/db/entities";
+import { VehicleSchema, VisitorScanEventSchema, VisitorSchema, VisitorVehicleSchema } from "@/db/entities";
 import { createVisitorInputFactory } from "@/test/factories/visitor.factory";
 import { refreshParkingTestDatabase } from "@/test/refresh-database";
 import { seedHrHost } from "@/test/seeders/hr-host.seeder";
@@ -129,6 +133,64 @@ describe("visitor pass database flow", () => {
     const scanEvents = await AppDataSource.manager.count(VisitorScanEventSchema);
     expect(visitors).toBe(1);
     expect(scanEvents).toBe(3);
+  });
+
+  it("blocks visitor pass creation when the vehicle is blacklisted", async () => {
+    const actor = await seedParkingUser(AppDataSource.manager, { role: "guard" });
+    const token = await signTestSupabaseAccessToken(actor.id);
+    await AppDataSource.manager.save(VehicleSchema, {
+      plate: "BLOCK 100",
+      plateNormalised: "BLOCK100",
+      notes: "Security incident under review.",
+      blacklisted: true,
+    });
+
+    const response = await createVisitorEndpoint(
+      jsonRequest(
+        "/api/visitors",
+        createVisitorInputFactory({ vehicleNumber: "block-100", typeCode: "visitor" }),
+        token,
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: expect.stringContaining("Vehicle BLOCK 100 is blacklisted"),
+    });
+    await expect(AppDataSource.manager.count(VisitorSchema)).resolves.toBe(0);
+  });
+
+  it("rejects arrival check-in when a pending vehicle becomes blacklisted", async () => {
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({ vehicleNumber: "LATE BLOCK", typeCode: "visitor" }),
+    );
+    await AppDataSource.manager.save(VehicleSchema, {
+      plate: "LATE BLOCK",
+      plateNormalised: "LATEBLOCK",
+      notes: "Added to blacklist after pre-registration.",
+      blacklisted: true,
+    });
+
+    const reviewed = await reviewVisitorPass({ token: issued.token, guardId: "guard-review" });
+    expect(reviewed.vehicles).toContainEqual(expect.objectContaining({
+      vehicleNumber: "LATE BLOCK",
+      blacklisted: true,
+      blacklistReason: "Added to blacklist after pre-registration.",
+    }));
+
+    await expect(
+      scanVisitorPass({ token: issued.token, action: "check_in", guardId: "guard-arrival" }),
+    ).rejects.toThrow("Vehicle LATE BLOCK is blacklisted");
+
+    const rejectedEvent = await AppDataSource.manager.findOneByOrFail(VisitorScanEventSchema, {
+      visitorId: issued.visitor.id,
+      eventType: "scan_rejected",
+    });
+    expect(rejectedEvent.metadata).toMatchObject({
+      reason: "blacklisted_vehicle",
+      vehicleNumber: "LATE BLOCK",
+    });
+    await expect(getVisitById(issued.visitor.id)).resolves.toMatchObject({ status: "pending" });
   });
 
   it("stores additional vehicle plates on one visitor registration", async () => {
@@ -1306,6 +1368,7 @@ describe("visitor pass database flow", () => {
         nric: { from: expect.any(String), to: "900101-14-2222" },
         vehicleNumber: { from: "TYPO 100", to: "OK 200" },
         additionalVehicleNumbers: { from: null, to: "OK 201, TYPO 100" },
+        typeCode: { from: "visitor", to: "vendor" },
       },
       identityDocument: {
         changedBy: guard.id,
@@ -1415,6 +1478,89 @@ describe("visitor pass database flow", () => {
     });
   });
 
+  it("allows admins to edit and remove known vehicle registry records", async () => {
+    const admin = await seedParkingUser(AppDataSource.manager, { role: "admin" });
+    const token = await signTestSupabaseAccessToken(admin.id);
+    const vehicle = await AppDataSource.manager.save(VehicleSchema, {
+      plate: "REG 100",
+      plateNormalised: "REG100",
+      ownerName: "Original Owner",
+      ownerType: "visitor",
+      blacklisted: false,
+    });
+
+    const updateResponse = await updateVehicleEndpoint(
+      jsonRequest(
+        `/api/admin/vehicles/${vehicle.id}`,
+        {
+          plate: "REG 200",
+          ownerName: "Updated Owner",
+          ownerContact: "+60123450000",
+          ownerEmail: "updated@example.com",
+          ownerType: "vendor",
+          staffId: "EMP-0200",
+          notes: "Registry updated.",
+          blacklisted: true,
+        },
+        token,
+        "PATCH",
+      ),
+      { params: Promise.resolve({ id: vehicle.id }) },
+    );
+
+    expect(updateResponse.status).toBe(200);
+    await expect(updateResponse.json()).resolves.toMatchObject({
+      vehicle: {
+        id: vehicle.id,
+        plate: "REG 200",
+        plateNormalised: "REG200",
+        ownerName: "Updated Owner",
+        ownerContact: "+60123450000",
+        ownerEmail: "updated@example.com",
+        ownerType: "vendor",
+        staffId: "EMP-0200",
+        notes: "Registry updated.",
+        blacklisted: true,
+      },
+    });
+
+    const deleteResponse = await deleteVehicleEndpoint(
+      emptyRequest(`/api/admin/vehicles/${vehicle.id}`, token, "DELETE"),
+      { params: Promise.resolve({ id: vehicle.id }) },
+    );
+
+    expect(deleteResponse.status).toBe(200);
+    await expect(AppDataSource.manager.findOneBy(VehicleSchema, { id: vehicle.id })).resolves.toBeNull();
+  });
+
+  it("blocks deleting a known vehicle while its plate is currently checked in", async () => {
+    const admin = await seedParkingUser(AppDataSource.manager, { role: "admin" });
+    const token = await signTestSupabaseAccessToken(admin.id);
+    const vehicle = await AppDataSource.manager.save(VehicleSchema, {
+      plate: "LIVE DEL",
+      plateNormalised: "LIVEDEL",
+      ownerName: "Active Owner",
+      blacklisted: false,
+    });
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({ vehicleNumber: "LIVE DEL", typeCode: "visitor" }),
+    );
+    await scanVisitorPass({ token: issued.token, action: "check_in", guardId: admin.id });
+
+    const deleteResponse = await deleteVehicleEndpoint(
+      emptyRequest(`/api/admin/vehicles/${vehicle.id}`, token, "DELETE"),
+      { params: Promise.resolve({ id: vehicle.id }) },
+    );
+
+    expect(deleteResponse.status).toBe(400);
+    await expect(deleteResponse.json()).resolves.toEqual({
+      error: "Vehicle cannot be removed while it is currently checked in.",
+    });
+    await expect(AppDataSource.manager.findOneBy(VehicleSchema, { id: vehicle.id })).resolves.toMatchObject({
+      plate: "LIVE DEL",
+    });
+  });
+
   it("allows admins to flag and clear checked-in visitors", async () => {
     const admin = await seedParkingUser(AppDataSource.manager, { role: "admin" });
     const token = await signTestSupabaseAccessToken(admin.id);
@@ -1443,6 +1589,20 @@ describe("visitor pass database flow", () => {
       flagReason: "Escalated by security desk.",
     });
 
+    const updateResponse = await flagVisitorEndpoint(
+      jsonRequest(
+        `/api/admin/visitors/${issued.visitor.id}/flag`,
+        { flagReason: "Host asked security to verify before exit." },
+        token,
+        "PUT",
+      ),
+      { params: Promise.resolve({ id: issued.visitor.id }) },
+    );
+
+    expect(updateResponse.status).toBe(200);
+    visitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: issued.visitor.id });
+    expect(visitor.flagReason).toBe("Host asked security to verify before exit.");
+
     const clearResponse = await clearVisitorFlagEndpoint(
       emptyRequest(`/api/admin/visitors/${issued.visitor.id}/flag`, token, "DELETE"),
       { params: Promise.resolve({ id: issued.visitor.id }) },
@@ -1453,5 +1613,15 @@ describe("visitor pass database flow", () => {
     expect(visitor.flagReason).toBeNull();
     expect(visitor.flaggedBy).toBeNull();
     expect(visitor.flaggedAt).toBeNull();
+
+    const reviewEvents = await AppDataSource.manager.find(VisitorScanEventSchema, {
+      where: { visitorId: issued.visitor.id, eventType: "details_updated" },
+      order: { scannedAt: "ASC" },
+    });
+    expect(reviewEvents.map((event) => event.metadata.reason)).toEqual([
+      "visit_marked_for_review",
+      "visit_review_reason_updated",
+      "visit_review_flag_cleared",
+    ]);
   });
 });

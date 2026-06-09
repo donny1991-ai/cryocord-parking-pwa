@@ -7,6 +7,7 @@ import { HrUserSchema } from "./entities/hr-user.entity";
 import { ParkingSettingSchema } from "./entities/parking-setting.entity";
 import { ParkingUserSchema } from "./entities/parking-user.entity";
 import { VisitorScanEventSchema } from "./entities/visitor-scan-event.entity";
+import { VisitorEntrySnapshotSchema } from "./entities/visitor-entry-snapshot.entity";
 import { VisitorSchema } from "./entities/visitor.entity";
 import { VisitorTypeSchema } from "./entities/visitor-type.entity";
 import { VisitorVehicleSchema } from "./entities/visitor-vehicle.entity";
@@ -57,6 +58,7 @@ export const AppDataSource = new DataSource({
     ParkingUserSchema,
     VisitorTypeSchema,
     VisitorSchema,
+    VisitorEntrySnapshotSchema,
     VisitorVehicleSchema,
     VisitorScanEventSchema,
     VehicleSchema,

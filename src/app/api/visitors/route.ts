@@ -131,6 +131,7 @@ export async function POST(request: NextRequest) {
       message.includes("NRIC") ||
       message.includes("Passport") ||
       message.includes("Identity document") ||
+      message.includes("blacklisted") ||
       message.startsWith("Visit date") ||
       message.startsWith("Visit time") ||
       message.includes("Number of visitors")

@@ -3,6 +3,10 @@ import { NextRequest } from "next/server";
 import { GET as getSettingsEndpoint } from "@/app/api/admin/settings/route";
 import { GET as getUsersEndpoint, POST as createUserEndpoint } from "@/app/api/admin/users/route";
 import { POST as createVehicleEndpoint } from "@/app/api/admin/vehicles/route";
+import {
+  DELETE as deleteVehicleEndpoint,
+  PATCH as updateVehicleEndpoint,
+} from "@/app/api/admin/vehicles/[id]/route";
 import { PUT as flagVisitorEndpoint } from "@/app/api/admin/visitors/[id]/flag/route";
 import { AppDataSource } from "@/db/data-source";
 import { refreshParkingTestDatabase } from "@/test/refresh-database";
@@ -45,6 +49,7 @@ describe("admin API access control", () => {
     const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
     const token = await signTestSupabaseAccessToken(guard.id);
     const visitorId = "00000000-0000-4000-8000-000000000001";
+    const vehicleId = "00000000-0000-4000-8000-000000000002";
 
     const settingsResponse = await getSettingsEndpoint(request("/api/admin/settings", token));
     const usersResponse = await getUsersEndpoint(request("/api/admin/users", token));
@@ -61,8 +66,19 @@ describe("admin API access control", () => {
       }),
       { params: Promise.resolve({ id: visitorId }) },
     );
+    const updateVehicleResponse = await updateVehicleEndpoint(
+      request(`/api/admin/vehicles/${vehicleId}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ ownerName: "Should be rejected." }),
+      }),
+      { params: Promise.resolve({ id: vehicleId }) },
+    );
+    const deleteVehicleResponse = await deleteVehicleEndpoint(
+      request(`/api/admin/vehicles/${vehicleId}`, token, { method: "DELETE" }),
+      { params: Promise.resolve({ id: vehicleId }) },
+    );
 
-    for (const response of [settingsResponse, usersResponse, vehicleResponse, flagResponse]) {
+    for (const response of [settingsResponse, usersResponse, vehicleResponse, flagResponse, updateVehicleResponse, deleteVehicleResponse]) {
       expect(response.status).toBe(403);
       await expect(response.json()).resolves.toEqual({
         error: "Parking access is not permitted for this account.",

@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { AppDataSource } from "./data-source";
 import { freshParkingDatabase } from "./parking-fresh";
+import { freshParkingStorageObjects } from "./parking-storage-fresh";
 import { seedStarterAdmin } from "./seeders/auth-user.seeder";
 import { seedDemoJourney } from "./seeders/demo-journey.seeder";
 
@@ -42,6 +43,15 @@ async function main() {
 
   const shouldSeed = process.argv.includes("--seed");
   const shouldSeedDemo = process.argv.includes("--demo");
+  const storage = await freshParkingStorageObjects();
+  if (storage.skipped) {
+    console.log(`Skipped parking storage cleanup: ${storage.reason}`);
+  } else {
+    console.log(
+      `Removed ${storage.objectsRemoved} parking storage object(s) from bucket ${storage.bucket} under ${storage.prefixes.join(", ")}`,
+    );
+  }
+
   const result = await freshParkingDatabase(AppDataSource);
 
   console.log("Preserved Supabase auth.users; no auth users were deleted.");

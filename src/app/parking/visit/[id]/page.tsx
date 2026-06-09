@@ -3,7 +3,6 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import {
   CalendarPlus,
-  Camera,
   Clock,
   DoorOpen,
   FileClock,
@@ -23,6 +22,7 @@ import { QrPass } from "@/components/parking/qr-pass";
 import { IdentityDocumentRow } from "@/components/parking/identity-document-row";
 import { VisitorCancelControl } from "@/components/parking/visitor-cancel-control";
 import { VisitorFlagControl } from "@/components/parking/visitor-flag-control";
+import { EntrySnapshotControl } from "@/components/parking/entry-snapshot-control";
 import { getVisitAuditTrail, getVisitById } from "@/lib/server/parking-data";
 import { requireParkingPageUser } from "@/lib/server/page-auth";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
@@ -208,19 +208,21 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
         </GlassCard>
       )}
 
-      {actor.role === "admin" && live && (
-        <VisitorFlagControl visitId={visit.id} initialReason={visit.flagReason} />
+      {actor.role === "admin" && (
+        <VisitorFlagControl
+          visitId={visit.id}
+          initialReason={visit.flagReason}
+          initialFlaggedAt={visit.flaggedAt}
+          disabled={!live}
+        />
       )}
 
-      {/* Entry photo (Azure Blob, MY West) */}
       <GlassCard padding="md">
-        <p className="mb-2 text-sm font-bold uppercase tracking-wide text-ink-faint">Entry snapshot</p>
-        <div className="flex aspect-video items-center justify-center rounded-2xl bg-ink/5 text-ink-faint">
-          <div className="flex flex-col items-center gap-1">
-            <Camera className="h-7 w-7 opacity-50" />
-            <span className="text-xs">{visit.entryPhotoUrl ? "Stored in Azure Blob" : "No snapshot captured"}</span>
-          </div>
-        </div>
+        <EntrySnapshotControl
+          visitId={visit.id}
+          status={visit.status}
+          initialSnapshots={visit.entrySnapshots}
+        />
       </GlassCard>
 
       {/* Audit trail */}
@@ -237,13 +239,29 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
                 <span className="mt-0.5 w-px flex-1 bg-ink-faint/20" />
               </div>
               <div className="flex-1 pb-1">
-                <div className="flex items-center gap-2">
-                  <Chip tone="brand">{e.actionType}</Chip>
-                  <span className="text-xs font-semibold text-emerald-600">{e.result}</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-bold text-ink">{e.activityTitle ?? e.actionType}</p>
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+                      e.result === "SUCCESS"
+                        ? "bg-emerald-500/10 text-emerald-700"
+                        : "bg-brand/10 text-brand",
+                    )}
+                  >
+                    {e.result === "SUCCESS" ? "Done" : e.result.toLowerCase()}
+                  </span>
                 </div>
-                <p className="mt-1 text-xs text-ink-faint">
-                  {e.actorRole} · {e.actorUserId} · {formatDateTime(e.timestampUtc)}
+                {e.activityDescription && (
+                  <p className="mt-1 text-xs leading-relaxed text-ink-soft">{e.activityDescription}</p>
+                )}
+                <p className="mt-1 text-[11px] text-ink-faint">
+                  {formatDateTime(e.timestampUtc)} · {e.actorLabel ?? e.actorUserId}
                 </p>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  <Chip tone="brand">{e.actionType}</Chip>
+                  <Chip>{e.actorRole}</Chip>
+                </div>
               </div>
             </li>
           ))}
@@ -255,11 +273,13 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
       </GlassCard>
 
       {live && (
-        <Link href={`/parking/exit?visitId=${encodeURIComponent(visit.id)}`}>
-          <Button size="xl" className="w-full">
-            <DoorOpen className="h-5 w-5" /> Log exit for this vehicle
-          </Button>
-        </Link>
+        <div className="pt-3">
+          <Link href={`/parking/exit?visitId=${encodeURIComponent(visit.id)}`}>
+            <Button size="xl" className="w-full">
+              <DoorOpen className="h-5 w-5" /> Log exit for this vehicle
+            </Button>
+          </Link>
+        </div>
       )}
     </div>
   );

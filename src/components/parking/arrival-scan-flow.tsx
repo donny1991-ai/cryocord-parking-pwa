@@ -3,7 +3,7 @@
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { CameraOff, CheckCircle2, LogIn, PhoneCall, ScanLine, ShieldCheck, X } from "lucide-react";
+import { Ban, CameraOff, CheckCircle2, LogIn, PhoneCall, ScanLine, ShieldCheck, X } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { checkCameraSupport } from "@/lib/camera";
 import { labelize, purposeLabel, visitTypeLabel } from "@/lib/labels";
 import { PURPOSES, VISIT_TYPES, type Purpose, type VisitType } from "@/lib/enums";
+import { normalisePlate } from "@/lib/utils";
 
 const QrScanner = dynamic(() => import("./qr-scanner").then((module) => module.QrScanner), {
   ssr: false,
@@ -49,6 +50,8 @@ interface ScannedVehicle {
   status: "pending" | "checked_in" | "checked_out" | "cancelled" | "rejected";
   checkedIn: string | null;
   checkedOut: string | null;
+  blacklisted?: boolean;
+  blacklistReason?: string | null;
 }
 
 interface ScannedHost {
@@ -259,6 +262,12 @@ export function ArrivalScanFlow() {
   const pendingVehicleCount =
     reviewing?.vehicles?.filter((vehicle) => vehicle.status === "pending").length ??
     draftVehicleNumbers.length;
+  const blacklistedVehicles = reviewing?.vehicles?.filter((vehicle) => vehicle.blacklisted) ?? [];
+
+  function vehicleBlacklist(vehicleNumber: string) {
+    const normalised = normalisePlate(vehicleNumber);
+    return reviewing?.vehicles?.find((vehicle) => normalisePlate(vehicle.vehicleNumber) === normalised && vehicle.blacklisted);
+  }
 
   if (checkedIn) {
     return (
@@ -310,6 +319,26 @@ export function ArrivalScanFlow() {
         </div>
 
         <GlassCard padding="lg" className="space-y-4">
+          {blacklistedVehicles.length > 0 && (
+            <div className="rounded-2xl border border-brand/25 bg-brand/10 px-3.5 py-3 text-brand">
+              <div className="flex items-center gap-2 text-sm font-bold">
+                <Ban className="h-4 w-4 shrink-0" />
+                Blacklisted vehicle detected
+              </div>
+              <p className="mt-1 text-xs font-semibold text-brand/85">
+                Do not check in blacklisted vehicles. Contact the duty manager for clearance.
+              </p>
+              <div className="mt-2 space-y-1.5">
+                {blacklistedVehicles.map((vehicle) => (
+                  <p key={vehicle.id} className="rounded-2xl bg-white/60 px-3 py-2 text-xs font-semibold text-ink-soft">
+                    {vehicle.vehicleNumber}
+                    {vehicle.blacklistReason ? ` · ${vehicle.blacklistReason}` : ""}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
           <Field label="Vehicle plate" required>
             <Input
               value={draft.vehicleNumber}
@@ -343,12 +372,14 @@ export function ArrivalScanFlow() {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {draftVehicleNumbers.map((vehicleNumber) => {
                 const existing = reviewing.vehicles?.find((vehicle) => vehicle.vehicleNumber === vehicleNumber);
+                const blacklist = vehicleBlacklist(vehicleNumber);
                 const status = existing?.status ?? "pending";
                 const disabled =
                   status === "checked_in" ||
                   status === "checked_out" ||
                   status === "cancelled" ||
-                  status === "rejected";
+                  status === "rejected" ||
+                  Boolean(blacklist);
                 const selected = selectedVehicleNumber === vehicleNumber;
                 const approving = submitting?.action === "approve" && submitting.vehicleNumber === vehicleNumber;
                 const rejecting = submitting?.action === "reject" && submitting.vehicleNumber === vehicleNumber;
@@ -357,7 +388,9 @@ export function ArrivalScanFlow() {
                     key={vehicleNumber}
                     className={[
                       "rounded-2xl border p-3 text-left transition",
-                      selected
+                      blacklist
+                        ? "border-brand/25 bg-brand/10 text-brand"
+                        : selected
                         ? "border-brand bg-brand/10 text-brand"
                         : "border-white/60 bg-white/45 text-ink",
                       disabled ? "opacity-70" : "hover:border-brand/40",
@@ -378,9 +411,16 @@ export function ArrivalScanFlow() {
                               ? "cancelled"
                               : status === "rejected"
                                 ? "rejected"
+                                : blacklist
+                                  ? "blocked"
                                 : "pending"}
                       </span>
                     </button>
+                    {blacklist && (
+                      <p className="mt-2 rounded-2xl bg-white/60 px-3 py-2 text-xs font-semibold text-ink-soft">
+                        This vehicle is blacklisted. Reject the arrival and escalate.
+                      </p>
+                    )}
                     {status === "pending" && (
                       <div className="mt-3 grid grid-cols-2 gap-2">
                         <Button
@@ -396,7 +436,7 @@ export function ArrivalScanFlow() {
                           type="button"
                           size="sm"
                           onClick={() => approveArrival(vehicleNumber)}
-                          disabled={!canSubmitDecision || submitting !== null}
+                          disabled={!canSubmitDecision || submitting !== null || Boolean(blacklist)}
                         >
                           <CheckCircle2 className="h-4 w-4" /> {approving ? "Approving..." : "Approve"}
                         </Button>

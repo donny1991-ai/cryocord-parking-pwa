@@ -29,6 +29,16 @@ param parkingQrSigningKey string = ''
 @description('Optional Supabase JWT secret used to verify authenticated requests. Leave empty to add it manually on the Container App.')
 param supabaseJwtSecret string = ''
 
+@description('Supabase project URL used for private Storage access. Leave empty to disable entry snapshot upload.')
+param supabaseUrl string = ''
+
+@secure()
+@description('Optional Supabase service role key used by the server to upload private entry snapshots. Leave empty to add it manually on the Container App.')
+param supabaseServiceRoleKey string = ''
+
+@description('Private Supabase Storage bucket for visitor entry snapshots.')
+param parkingEntrySnapshotBucket string = 'parking-entry-snapshots'
+
 @secure()
 @description('Optional dedicated OTP signing secret. Leave empty to use SUPABASE_JWT_SECRET fallback.')
 param authOtpSecret string = ''
@@ -108,6 +118,9 @@ module app './app.bicep' = {
     parkingQrKeyId: parkingQrKeyId
     parkingQrSigningKey: parkingQrSigningKey
     supabaseJwtSecret: supabaseJwtSecret
+    supabaseUrl: supabaseUrl
+    supabaseServiceRoleKey: supabaseServiceRoleKey
+    parkingEntrySnapshotBucket: parkingEntrySnapshotBucket
     authOtpSecret: authOtpSecret
     publicAppUrl: publicAppUrl
     smtpHost: smtpHost

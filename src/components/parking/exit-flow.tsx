@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { CameraOff, CheckCircle2, DoorOpen, ScanLine, Search, X } from "lucide-react";
+import { AlertTriangle, CameraOff, CheckCircle2, DoorOpen, ScanLine, Search, X } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,6 +44,7 @@ interface ScannedExitVisitor {
   checkedOutBy?: string | null;
   typeCode: Visit["visitType"];
   purpose: Visit["purpose"];
+  flagReason: string | null;
   status: string;
   createdAt: string;
 }
@@ -70,6 +71,13 @@ export function ExitFlow({
   const [exited, setExited] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
+
+  function selectVisit(visit: Visit | null) {
+    setSelected(visit);
+    setReviewAcknowledged(false);
+    setCheckoutError(null);
+  }
 
   function startScan() {
     const support = checkCameraSupport();
@@ -105,19 +113,26 @@ export function ExitFlow({
       const activeVehicles = visitor.vehicles.filter((vehicle) => vehicle.status === "checked_in");
       setScanning(false);
       setPendingToken(token);
-      setReviewingExit(visitor);
       if (activeVehicles.length === 1) {
+        if (visitorNeedsReview(visitor)) {
+          setReviewingExit(null);
+          selectVisit(toVisitFromScannedVehicle(visitor, activeVehicles[0].vehicleNumber, "flagged"));
+          setPendingToken(null);
+          return;
+        }
         await checkoutScannedVehicle(token, visitor, activeVehicles[0].vehicleNumber);
         return;
       }
+      setReviewingExit(visitor);
     } catch (error) {
       setCheckoutError(error instanceof Error ? error.message : "Pass not recognised for exit. Search by plate instead.");
       setScanning(false);
     }
   }
 
-  function toVisitFromScannedVehicle(visitor: ScannedExitVisitor, vehicleNumber: string): Visit {
+  function toVisitFromScannedVehicle(visitor: ScannedExitVisitor, vehicleNumber: string, status: Visit["status"] = "exited"): Visit {
     const vehicle = visitor.vehicles.find((candidate) => candidate.vehicleNumber === vehicleNumber);
+    const exited = status === "exited";
     return {
       id: visitor.id,
       vehicleId: vehicle?.id,
@@ -139,11 +154,12 @@ export function ExitFlow({
       organisation: visitor.organisation ?? undefined,
       visitType: visitor.typeCode,
       purpose: visitor.purpose,
+      flagReason: visitor.flagReason ?? undefined,
       entryTime: vehicle?.checkedIn ?? visitor.checkedIn ?? new Date().toISOString(),
       entryGuardId: vehicle?.checkedInBy ?? visitor.checkedInBy ?? "system",
-      exitTime: vehicle?.checkedOut ?? visitor.checkedOut ?? new Date().toISOString(),
-      exitGuardId: vehicle?.checkedOutBy ?? visitor.checkedOutBy ?? "system",
-      status: "exited",
+      exitTime: exited ? (vehicle?.checkedOut ?? visitor.checkedOut ?? new Date().toISOString()) : undefined,
+      exitGuardId: exited ? (vehicle?.checkedOutBy ?? visitor.checkedOutBy ?? "system") : undefined,
+      status,
       createdAt: visitor.createdAt,
     };
   }
@@ -162,7 +178,7 @@ export function ExitFlow({
         throw new Error(payload.error ?? "Unable to log exit.");
       }
       const visitor = payload.visitor as ScannedExitVisitor;
-      setSelected(toVisitFromScannedVehicle(visitor, vehicleNumber));
+      selectVisit(toVisitFromScannedVehicle(visitor, vehicleNumber));
       setReviewingExit(null);
       setPendingToken(null);
       setExited(true);
@@ -176,6 +192,10 @@ export function ExitFlow({
 
   async function confirmSelectedExit() {
     if (!selected) return;
+    if (visitNeedsReview(selected) && !reviewAcknowledged) {
+      setCheckoutError("Acknowledge the review flag before logging exit.");
+      return;
+    }
 
     setCheckingOut(true);
     setCheckoutError(null);
@@ -220,6 +240,7 @@ export function ExitFlow({
   }
 
   if (selected) {
+    const needsReview = visitNeedsReview(selected);
     return (
       <div className="space-y-4">
         <GlassCard variant="strong" padding="lg" className="space-y-3">
@@ -250,10 +271,33 @@ export function ExitFlow({
             <Chip>On site {durationSince(selected.entryTime, now)}</Chip>
           </div>
           <p className="text-sm text-ink-soft">{selected.visitorName} · {selected.visitorContact}</p>
+          {needsReview && (
+            <div className="rounded-2xl border border-brand/25 bg-brand/10 px-3.5 py-3">
+              <div className="flex items-center gap-2 text-brand">
+                <AlertTriangle className="h-4 w-4" />
+                <p className="text-sm font-bold">Marked for review before exit</p>
+              </div>
+              <p className="mt-2 whitespace-pre-wrap text-sm font-semibold text-ink">
+                {selected.flagReason ?? "This registration needs guard follow-up before checkout."}
+              </p>
+              <label className="mt-3 flex items-start gap-2 rounded-2xl bg-white/65 px-3 py-2 text-xs font-bold text-ink-soft">
+                <input
+                  type="checkbox"
+                  checked={reviewAcknowledged}
+                  onChange={(event) => {
+                    setReviewAcknowledged(event.target.checked);
+                    if (event.target.checked) setCheckoutError(null);
+                  }}
+                  className="mt-0.5 h-4 w-4 rounded border-brand/40 accent-brand"
+                />
+                Review note acknowledged by guard
+              </label>
+            </div>
+          )}
         </GlassCard>
         <div className="grid grid-cols-2 gap-3">
-          <Button variant="glass" onClick={() => setSelected(null)}>Cancel</Button>
-          <Button onClick={confirmSelectedExit} disabled={checkingOut}>
+          <Button variant="glass" onClick={() => selectVisit(null)}>Cancel</Button>
+          <Button onClick={confirmSelectedExit} disabled={checkingOut || (needsReview && !reviewAcknowledged)}>
             <DoorOpen className="h-5 w-5" /> {checkingOut ? "Logging..." : "Confirm exit"}
           </Button>
         </div>
@@ -282,7 +326,15 @@ export function ExitFlow({
               <button
                 key={vehicle.id}
                 type="button"
-                onClick={() => checkoutScannedVehicle(pendingToken, reviewingExit, vehicle.vehicleNumber)}
+                onClick={() => {
+                  if (visitorNeedsReview(reviewingExit)) {
+                    selectVisit(toVisitFromScannedVehicle(reviewingExit, vehicle.vehicleNumber, "flagged"));
+                    setReviewingExit(null);
+                    setPendingToken(null);
+                    return;
+                  }
+                  checkoutScannedVehicle(pendingToken, reviewingExit, vehicle.vehicleNumber);
+                }}
                 disabled={checkingOut}
                 className="glass glass-interactive flex w-full items-center justify-between rounded-2xl p-3 text-left"
               >
@@ -365,7 +417,7 @@ export function ExitFlow({
         {filtered.map((v) => (
           <button
             key={v.id}
-            onClick={() => setSelected(v)}
+            onClick={() => selectVisit(v)}
             className="glass glass-interactive flex w-full items-center justify-between rounded-2xl p-3.5 text-left"
           >
             <div>
@@ -393,6 +445,14 @@ export function ExitFlow({
       </div>
     </div>
   );
+}
+
+function visitNeedsReview(visit: Visit) {
+  return Boolean(visit.flagReason) || visit.status === "flagged";
+}
+
+function visitorNeedsReview(visitor: ScannedExitVisitor) {
+  return Boolean(visitor.flagReason);
 }
 
 function Row({ label, value }: { label: string; value: string }) {

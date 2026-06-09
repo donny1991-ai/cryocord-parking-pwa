@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  ArrowRight,
   ChevronRight,
   DoorOpen,
   Flag,
@@ -43,39 +44,58 @@ export default async function DashboardPage() {
         series={series}
       />
 
-      <div className="grid grid-cols-2 gap-3">
-        <StatCard
-          icon={LogIn}
-          label="Entries today"
-          value={c.todayEntries}
-          trend={{ dir: "up", label: "+18%" }}
-          sublabel="vs. yesterday"
-        />
-        <StatCard icon={TriangleAlert} label="Overstayed" value={c.overstayed} sublabel="> 4 hours on site" />
-      </div>
+      <section className="space-y-3">
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wide text-brand">Gate actions</p>
+            <h2 className="text-xl font-bold leading-tight text-ink">Choose workflow</h2>
+          </div>
+          <span className="rounded-full bg-brand/8 px-3 py-1 text-[11px] font-bold text-brand">Primary</span>
+        </div>
 
-      {/* Primary actions */}
-      <div className="grid grid-cols-2 gap-3">
-        <ActionTile
-          href="/parking/entry"
-          icon={ScanLine}
-          title="New Entry"
-          subtitle="Plate scan · check in"
-          primary
-        />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <ActionTile
+            href="/parking/entry"
+            icon={ScanLine}
+            title="New Entry"
+            subtitle="Capture plate and issue pass"
+            cta="Start entry"
+            tone="entry"
+          />
+          <ActionTile
+            href="/parking/exit"
+            icon={DoorOpen}
+            title="Log Exit"
+            subtitle="Scan pass and confirm out"
+            cta="Log exit"
+            tone="exit"
+          />
+        </div>
+
         <ActionTile
           href="/parking/arrival"
           icon={QrCode}
           title="Arrival Scan"
-          subtitle="QR · check in"
+          subtitle="Review a visitor QR before check-in"
+          cta="Scan QR"
+          tone="arrival"
+          compact
         />
-        <ActionTile
-          href="/parking/exit"
-          icon={DoorOpen}
-          title="Log Exit"
-          subtitle="QR/plate · check out"
-        />
-      </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="section-label">Today at a glance</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard
+            icon={LogIn}
+            label="Entries today"
+            value={c.todayEntries}
+            trend={{ dir: "up", label: "+18%" }}
+            sublabel="vs. yesterday"
+          />
+          <StatCard icon={TriangleAlert} label="Overstayed" value={c.overstayed} sublabel="Needs attention" />
+        </div>
+      </section>
 
       {/* Flagged callout */}
       {c.flagged > 0 && (
@@ -130,43 +150,52 @@ export default async function DashboardPage() {
 function ActionTile({
   href,
   icon: Icon,
-  iconClass,
   title,
   subtitle,
-  primary = false,
+  cta,
+  tone,
+  compact = false,
 }: {
   href: string;
   icon: LucideIcon;
-  iconClass?: string;
   title: string;
   subtitle: string;
-  primary?: boolean;
+  cta: string;
+  tone: "entry" | "exit" | "arrival";
+  compact?: boolean;
 }) {
-  if (primary) {
-    return (
-      <Link
-        href={href}
-        className="glass-red glass-interactive flex flex-col gap-3 rounded-3xl p-4"
-      >
-        <span className="relative z-10 flex h-11 w-11 items-center justify-center rounded-2xl bg-white/20 ring-1 ring-white/25">
-          <Icon className={`h-6 w-6 text-white ${iconClass ?? ""}`} />
-        </span>
-        <span className="relative z-10">
-          <span className="block text-base font-bold leading-tight">{title}</span>
-          <span className="block text-xs text-white/75">{subtitle}</span>
-        </span>
-      </Link>
-    );
-  }
+  const toneClasses = {
+    entry:
+      "bg-[linear-gradient(145deg,#18bd88_0%,#0b8b58_88%)] text-white shadow-[0_22px_44px_-24px_rgba(9,132,82,0.65)]",
+    exit:
+      "bg-[linear-gradient(145deg,#e1092b_0%,#9f001c_88%)] text-white shadow-[0_22px_44px_-24px_rgba(200,16,46,0.7)]",
+    arrival:
+      "glass border-emerald-500/18 bg-white/65 text-ink shadow-[0_16px_36px_-24px_rgba(20,22,60,0.32)]",
+  }[tone];
+  const iconClasses = tone === "arrival" ? "bg-emerald-500/10 text-emerald-700 ring-emerald-500/20" : "bg-white/18 text-white ring-white/25";
+  const ctaClasses = {
+    entry: "bg-white text-emerald-700",
+    exit: "bg-white text-brand",
+    arrival: "bg-emerald-500/10 text-emerald-700",
+  }[tone];
+
   return (
-    <Link href={href} className="glass glass-interactive flex flex-col gap-3 rounded-3xl p-4">
-      <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand/10">
-        <Icon className={`h-6 w-6 text-brand ${iconClass ?? ""}`} />
+    <Link
+      href={href}
+      className={`glass-interactive group relative overflow-hidden rounded-3xl p-4 ${toneClasses} ${
+        compact ? "flex min-h-[5.5rem] items-center gap-3" : "flex min-h-[12rem] flex-col justify-between"
+      }`}
+    >
+      {!compact && <ArrowRight className="absolute right-4 top-5 h-5 w-5 opacity-85 transition-transform group-hover:translate-x-0.5" />}
+      <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ring-1 ${iconClasses}`}>
+        <Icon className="h-6 w-6" />
       </span>
-      <span>
-        <span className="block text-base font-bold leading-tight text-ink">{title}</span>
-        <span className="block text-xs text-ink-faint">{subtitle}</span>
+      <span className={compact ? "min-w-0 flex-1" : "block"}>
+        <span className={`block font-bold leading-tight ${compact ? "text-base" : "text-xl"}`}>{title}</span>
+        <span className={`mt-1 block text-sm ${tone === "arrival" ? "text-ink-faint" : "text-white/88"}`}>{subtitle}</span>
+        <span className={`mt-4 inline-flex rounded-full px-3 py-1.5 text-xs font-bold ${ctaClasses}`}>{cta}</span>
       </span>
+      {compact && <ArrowRight className="h-5 w-5 shrink-0 text-emerald-700" />}
     </Link>
   );
 }

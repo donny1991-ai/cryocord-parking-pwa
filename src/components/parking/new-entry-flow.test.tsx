@@ -49,6 +49,39 @@ describe("NewEntryFlow", () => {
     }));
   });
 
+  it("blocks issuing a pass for a blacklisted known vehicle", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <NewEntryFlow
+        employees={[]}
+        vehicles={[
+          {
+            id: "vehicle-1",
+            plate: "BLK 100",
+            plateNormalised: "BLK100",
+            ownerName: "Blocked Driver",
+            ownerContact: "+60111111111",
+            ownerType: "visitor",
+            notes: "Security incident under review.",
+            blacklisted: true,
+            createdAt: "2026-06-09T00:00:00.000Z",
+            updatedAt: "2026-06-09T00:00:00.000Z",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. WA 18 K"), { target: { value: "blk 100" } });
+    fireEvent.click(screen.getByRole("button", { name: /Use/i }));
+
+    expect(screen.getByText("Vehicle is blacklisted. Registration is blocked.")).toBeInTheDocument();
+    expect(screen.getByText("Reason: Security incident under review.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Log Entry & Issue Pass/i })).toBeDisabled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("shows HR host contact details after a host is selected", () => {
     render(
       <NewEntryFlow

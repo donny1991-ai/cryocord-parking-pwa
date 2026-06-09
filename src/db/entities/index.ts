@@ -16,5 +16,7 @@ export { VisitorVehicleSchema } from "./visitor-vehicle.entity";
 export type { VisitorVehicleEntity, VisitorVehicleStatus } from "./visitor-vehicle.entity";
 export { VisitorScanEventSchema } from "./visitor-scan-event.entity";
 export type { VisitorScanEventEntity, VisitorScanEventType } from "./visitor-scan-event.entity";
+export { VisitorEntrySnapshotSchema } from "./visitor-entry-snapshot.entity";
+export type { VisitorEntrySnapshotEntity } from "./visitor-entry-snapshot.entity";
 export { VehicleSchema } from "./vehicle.entity";
 export type { VehicleEntity } from "./vehicle.entity";

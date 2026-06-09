@@ -28,6 +28,12 @@ export interface VisitVehicle {
   checkedOutBy?: string;
 }
 
+export interface VisitEntrySnapshot {
+  id: string;
+  url?: string;
+  capturedAt: string;
+}
+
 export interface Visit {
   id: string;
   vehicleId?: string;
@@ -55,9 +61,13 @@ export interface Visit {
   hostDepartment?: string;
   host?: Employee;
   flagReason?: string;
+  flaggedBy?: string;
+  flaggedAt?: string;
   entryTime: string;
   entryGuardId: string;
-  entryPhotoUrl?: string; // Azure Blob (MY West)
+  entryPhotoUrl?: string; // Short-lived Supabase Storage signed URL.
+  entryPhotoCapturedAt?: string;
+  entrySnapshots?: VisitEntrySnapshot[];
   exitTime?: string;
   exitGuardId?: string;
   qrToken?: string; // opaque signed reference, no PII (see lib/qr.ts)
@@ -82,7 +92,10 @@ export interface AuditEntry {
   correlationId: string;
   actorUserId: string;
   actorRole: string;
+  actorLabel?: string;
   actionType: AuditAction;
+  activityTitle?: string;
+  activityDescription?: string;
   targetDoctype: "Parking Visit" | "Parking Vehicle";
   targetRecordId?: string;
   result: "SUCCESS" | "FAILURE" | "DENIED";
