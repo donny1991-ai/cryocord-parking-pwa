@@ -15,29 +15,58 @@ describe("NewEntryFlow", () => {
     }), { status: 201, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<NewEntryFlow employees={[]} vehicles={[]} />);
+    render(
+      <NewEntryFlow
+        employees={[
+          {
+            staffId: "CCSB0698",
+            name: "Aina Host",
+            department: "AI Projects Lab",
+            phone: "0191112222",
+            extension: "808",
+            email: "aina.host@cryocord.com.my",
+          },
+        ]}
+        vehicles={[]}
+      />,
+    );
 
     fireEvent.change(screen.getByPlaceholderText("e.g. WA 18 K"), { target: { value: "cc 100" } });
     fireEvent.click(screen.getByRole("button", { name: /Use/i }));
 
-    fireEvent.change(screen.getByLabelText(/Visitor name/i), { target: { value: "Nadia Visitor" } });
-    fireEvent.change(screen.getByLabelText(/Contact number/i), { target: { value: "+60123456789" } });
+    fireEvent.change(screen.getByLabelText(/Main visitor name/i), { target: { value: "Nadia Visitor" } });
+    fireEvent.change(screen.getByLabelText(/Main visitor contact number/i), { target: { value: "+60123456789" } });
     fireEvent.change(screen.getByLabelText(/Purpose/i), { target: { value: "other" } });
     fireEvent.change(screen.getByLabelText(/Visit time/i), { target: { value: "09:30" } });
     fireEvent.change(screen.getByLabelText(/Number of visitors/i), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText("Other visitor 1 name"), { target: { value: "Aminah Guest" } });
+    fireEvent.change(screen.getByLabelText("Other visitor 2 name"), { target: { value: "Siti Guest" } });
+    fireEvent.click(screen.getByRole("button", { name: /Add vehicle/i }));
+    fireEvent.change(screen.getByLabelText("Additional vehicle 1"), { target: { value: "cc 101" } });
     fireEvent.change(screen.getByLabelText(/Remarks/i), { target: { value: "Park near loading bay" } });
 
     expect(screen.getByRole("button", { name: /Log Entry & Issue Pass/i })).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText(/NRIC number/i), { target: { value: "900101-14-1234" } });
+    fireEvent.change(screen.getByLabelText(/Main visitor NRIC number/i), { target: { value: "900101-14-1234" } });
+    expect(screen.getByRole("button", { name: /Log Entry & Issue Pass/i })).toBeDisabled();
+
+    fireEvent.change(screen.getByRole("combobox", { name: /Host/i }), { target: { value: "aina" } });
+    fireEvent.click(screen.getByRole("button", { name: /Aina Host/i }));
+
     expect(screen.getByRole("button", { name: /Log Entry & Issue Pass/i })).toBeEnabled();
 
     fireEvent.click(screen.getByRole("button", { name: /Log Entry & Issue Pass/i }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("button", { name: /Share QR image/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open WhatsApp text/i })).toHaveAttribute(
+      "href",
+      expect.stringContaining("https://wa.me/60123456789?text="),
+    );
     const [, requestInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(String(requestInit.body))).toEqual(expect.objectContaining({
       vehicleNumber: "CC100",
+      additionalVehicleNumbers: ["CC 101"],
       name: "Nadia Visitor",
       phoneNumber: "+60123456789",
       identityType: "nric",
@@ -45,7 +74,10 @@ describe("NewEntryFlow", () => {
       purpose: "other",
       visitTime: "09:30",
       visitorCount: "3",
+      otherVisitorNames: ["Aminah Guest", "Siti Guest"],
       remarks: "Park near loading bay",
+      hostStaffId: "CCSB0698",
+      hostDepartment: "AI Projects Lab",
     }));
   });
 

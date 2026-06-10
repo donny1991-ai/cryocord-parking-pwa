@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   ArrowRight,
   ChevronRight,
+  ClipboardList,
   DoorOpen,
   Flag,
   LogIn,
@@ -79,6 +80,15 @@ export default async function DashboardPage() {
           subtitle="Review a visitor QR before check-in"
           cta="Scan QR"
           tone="arrival"
+          compact
+        />
+        <ActionTile
+          href="/parking/requests"
+          icon={ClipboardList}
+          title="Public Registrations"
+          subtitle="Review wall-QR submissions"
+          cta="Review"
+          tone="request"
           compact
         />
       </section>
@@ -161,7 +171,7 @@ function ActionTile({
   title: string;
   subtitle: string;
   cta: string;
-  tone: "entry" | "exit" | "arrival";
+  tone: "entry" | "exit" | "arrival" | "request";
   compact?: boolean;
 }) {
   const toneClasses = {
@@ -171,12 +181,20 @@ function ActionTile({
       "bg-[linear-gradient(145deg,#e1092b_0%,#9f001c_88%)] text-white shadow-[0_22px_44px_-24px_rgba(200,16,46,0.7)]",
     arrival:
       "glass border-emerald-500/18 bg-white/65 text-ink shadow-[0_16px_36px_-24px_rgba(20,22,60,0.32)]",
+    request:
+      "glass border-sky-500/18 bg-white/65 text-ink shadow-[0_16px_36px_-24px_rgba(20,22,60,0.32)]",
   }[tone];
-  const iconClasses = tone === "arrival" ? "bg-emerald-500/10 text-emerald-700 ring-emerald-500/20" : "bg-white/18 text-white ring-white/25";
+  const iconClasses = {
+    entry: "bg-white/18 text-white ring-white/25",
+    exit: "bg-white/18 text-white ring-white/25",
+    arrival: "bg-emerald-500/10 text-emerald-700 ring-emerald-500/20",
+    request: "bg-sky-500/10 text-sky-700 ring-sky-500/20",
+  }[tone];
   const ctaClasses = {
     entry: "bg-white text-emerald-700",
     exit: "bg-white text-brand",
     arrival: "bg-emerald-500/10 text-emerald-700",
+    request: "bg-sky-500/10 text-sky-700",
   }[tone];
 
   return (
@@ -192,10 +210,12 @@ function ActionTile({
       </span>
       <span className={compact ? "min-w-0 flex-1" : "block"}>
         <span className={`block font-bold leading-tight ${compact ? "text-base" : "text-xl"}`}>{title}</span>
-        <span className={`mt-1 block text-sm ${tone === "arrival" ? "text-ink-faint" : "text-white/88"}`}>{subtitle}</span>
+        <span className={`mt-1 block text-sm ${tone === "entry" || tone === "exit" ? "text-white/88" : "text-ink-faint"}`}>
+          {subtitle}
+        </span>
         <span className={`mt-4 inline-flex rounded-full px-3 py-1.5 text-xs font-bold ${ctaClasses}`}>{cta}</span>
       </span>
-      {compact && <ArrowRight className="h-5 w-5 shrink-0 text-emerald-700" />}
+      {compact && <ArrowRight className={`h-5 w-5 shrink-0 ${tone === "request" ? "text-sky-700" : "text-emerald-700"}`} />}
     </Link>
   );
 }

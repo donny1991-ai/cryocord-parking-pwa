@@ -16,6 +16,10 @@ export function getEntrySnapshotUnavailableReason(status: Status) {
       return "Snapshot capture is locked after checkout.";
     case "cancelled":
       return "Cancelled registrations cannot capture an entry snapshot.";
+    case "no_show":
+      return "No-show registrations cannot capture an entry snapshot.";
+    case "partially_arrived":
+      return "Snapshot capture is unavailable after partial arrival closure.";
     default:
       return "Snapshot capture is unavailable for this registration status.";
   }

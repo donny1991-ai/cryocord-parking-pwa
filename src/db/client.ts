@@ -1,6 +1,8 @@
 import "server-only";
 import { AppDataSource } from "./data-source";
 
+let dataSourceInitialising: Promise<void> | null = null;
+
 export async function getParkingDataSource() {
   if (process.env.NODE_ENV === "test") {
     if (!process.env.TEST_DATABASE_URL && !process.env.SUPABASE_TEST_DB_URL) {
@@ -11,7 +13,12 @@ export async function getParkingDataSource() {
   }
 
   if (!AppDataSource.isInitialized) {
-    await AppDataSource.initialize();
+    dataSourceInitialising ??= AppDataSource.initialize()
+      .then(() => undefined)
+      .finally(() => {
+        dataSourceInitialising = null;
+      });
+    await dataSourceInitialising;
   }
 
   return AppDataSource;

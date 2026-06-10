@@ -228,7 +228,7 @@ export function ExitFlow({
         <GlassCard padding="lg" className="mx-auto max-w-sm space-y-1 text-left">
           <Row label="Plate" value={selected.plate} />
           {(selected.additionalPlates?.length ?? 0) > 0 && <Row label="Other plates" value={selected.additionalPlates!.join(", ")} />}
-          <Row label="Visitor" value={selected.visitorName} />
+          <Row label="Main visitor" value={selected.visitorName} />
           <Row label="Duration on site" value={durationSince(selected.entryTime, now)} />
           <Row label="Exit time" value={formatTime(now)} />
         </GlassCard>

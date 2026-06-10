@@ -8,6 +8,7 @@ import { ParkingSettingSchema } from "./entities/parking-setting.entity";
 import { ParkingUserSchema } from "./entities/parking-user.entity";
 import { VisitorScanEventSchema } from "./entities/visitor-scan-event.entity";
 import { VisitorEntrySnapshotSchema } from "./entities/visitor-entry-snapshot.entity";
+import { VisitorRequestSchema } from "./entities/visitor-request.entity";
 import { VisitorSchema } from "./entities/visitor.entity";
 import { VisitorTypeSchema } from "./entities/visitor-type.entity";
 import { VisitorVehicleSchema } from "./entities/visitor-vehicle.entity";
@@ -59,6 +60,7 @@ export const AppDataSource = new DataSource({
     VisitorTypeSchema,
     VisitorSchema,
     VisitorEntrySnapshotSchema,
+    VisitorRequestSchema,
     VisitorVehicleSchema,
     VisitorScanEventSchema,
     VehicleSchema,

@@ -4,7 +4,7 @@ import type { OwnerType, Purpose, Status, VisitType } from "@/lib/enums";
 import { OWNER_TYPES, PURPOSES, VISIT_TYPES } from "@/lib/enums";
 import { labelize, purposeLabel } from "@/lib/labels";
 import { getPreRegistrationTokenExpiresAt, getVisitTokenExpiresAt, signVisitToken } from "@/lib/qr";
-import { getHostByStaffId } from "@/lib/server/hosts";
+import { getHostByStaffId, getHostsByStaffIds } from "@/lib/server/hosts";
 import { getParkingSettings } from "@/lib/server/admin-settings";
 import { createEntrySnapshotSignedUrl } from "@/lib/server/entry-snapshot-storage";
 import type { AuditEntry, Employee, Vehicle, Visit, VisitEntrySnapshot, VisitVehicle } from "@/lib/types";
@@ -39,6 +39,7 @@ const OPTIONAL_VISITOR_COLUMNS = [
   "nric",
   "passport_number",
   "additional_vehicle_numbers",
+  "other_visitor_names",
   "visit_time",
   "visitor_count",
   "entry_photo_bucket",
@@ -68,6 +69,7 @@ interface VisitorReadRow {
   passportNumber: string | null;
   vehicleNumber: string;
   additionalVehicleNumbers: string[] | null;
+  otherVisitorNames: string[] | null;
   checkedIn: Date | null;
   checkedOut: Date | null;
   typeCode: string;
@@ -167,6 +169,10 @@ function toOwnerType(value: string | null): OwnerType | undefined {
   return value && (OWNER_TYPES as readonly string[]).includes(value) ? (value as OwnerType) : undefined;
 }
 
+function normaliseLookupKey(value: string | null | undefined) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
 export function getOverstayCutoff(checkedIn: Date, allowedDays: number) {
   const malaysiaTime = new Date(checkedIn.getTime() + MALAYSIA_UTC_OFFSET_MS);
   const cutoffMalaysiaUtc = Date.UTC(
@@ -183,6 +189,15 @@ export function getOverstayCutoff(checkedIn: Date, allowedDays: number) {
 
 export function isOverstayed(checkedIn: Date, now: Date, allowedDays: number) {
   return now.getTime() >= getOverstayCutoff(checkedIn, allowedDays).getTime();
+}
+
+function getVisitorPolicyExpiresAt(row: Pick<VisitorReadRow, "visitDate" | "createdAt">) {
+  const visitDate = toVisitDateInput(row.visitDate);
+  return visitDate ? getPreRegistrationTokenExpiresAt(visitDate) : getVisitTokenExpiresAt(row.createdAt);
+}
+
+function isVisitArrivalWindowExpired(row: VisitorReadRow, now: Date) {
+  return getVisitorPolicyExpiresAt(row).getTime() <= now.getTime();
 }
 
 function toUiStatus(row: VisitorReadRow, now: Date, overstayAllowedDays: number): Status {
@@ -209,6 +224,16 @@ function toUiStatus(row: VisitorReadRow, now: Date, overstayAllowedDays: number)
       return "exited";
     }
 
+    const hasPendingVehicle = vehicleRecords.some((vehicle) => vehicle.status === "pending");
+    const hasArrivedVehicle = vehicleRecords.some((vehicle) => vehicle.checkedIn || vehicle.status === "checked_out");
+    if (hasPendingVehicle && hasArrivedVehicle) {
+      return "partially_arrived";
+    }
+
+    if (hasPendingVehicle && isVisitArrivalWindowExpired(row, now)) {
+      return "no_show";
+    }
+
     return "pending";
   }
 
@@ -219,6 +244,9 @@ function toUiStatus(row: VisitorReadRow, now: Date, overstayAllowedDays: number)
     return "exited";
   }
   if (row.status !== "checked_in" || !row.checkedIn) {
+    if (row.status === "pending" && isVisitArrivalWindowExpired(row, now)) {
+      return "no_show";
+    }
     return "pending";
   }
   if (row.flagReason) {
@@ -283,6 +311,22 @@ function toVisitVehicles(row: VisitorReadRow): VisitVehicle[] {
   ];
 }
 
+function withVehicleDisplayStatuses(vehicles: VisitVehicle[], visitStatus: Status, row: VisitorReadRow, now: Date): VisitVehicle[] {
+  const expired = isVisitArrivalWindowExpired(row, now);
+  return vehicles.map((vehicle) => {
+    if (vehicle.status === "checked_in") {
+      return {
+        ...vehicle,
+        displayStatus: visitStatus === "flagged" || visitStatus === "overstayed" ? visitStatus : "inside",
+      };
+    }
+    if (vehicle.status === "checked_out") return { ...vehicle, displayStatus: "exited" };
+    if (vehicle.status === "cancelled" || vehicle.status === "rejected") return { ...vehicle, displayStatus: "cancelled" };
+    if (vehicle.status === "pending" && expired) return { ...vehicle, displayStatus: "no_show" };
+    return { ...vehicle, displayStatus: "pending" };
+  });
+}
+
 function toVisitDateInput(value: string | Date | null) {
   if (!value) return null;
   if (value instanceof Date) {
@@ -337,7 +381,9 @@ export function toPurposeNotes(remarks: string | null) {
 }
 
 function toVisit(row: VisitorReadRow, now: Date, overstayAllowedDays: number): Visit {
-  const vehicles = toVisitVehicles(row);
+  const baseVehicles = toVisitVehicles(row);
+  const status = toUiStatus(row, now, overstayAllowedDays);
+  const vehicles = withVehicleDisplayStatuses(baseVehicles, status, row, now);
   const activeVehicles = vehicles.filter((vehicle) => vehicle.status === "checked_in");
   const checkedOutVehicles = vehicles.filter((vehicle) => vehicle.status === "checked_out");
   const firstVehicleEntry = [...activeVehicles, ...checkedOutVehicles]
@@ -371,6 +417,7 @@ function toVisit(row: VisitorReadRow, now: Date, overstayAllowedDays: number): V
     visitDate: visitDate ?? undefined,
     visitTime: toVisitTimeInput(row.visitTime),
     visitorCount: row.visitorCount ?? undefined,
+    otherVisitorNames: row.otherVisitorNames ?? undefined,
     hostStaffId: row.hostStaffId ?? undefined,
     hostDepartment: row.hostDepartment ?? undefined,
     flagReason: row.flagReason ?? undefined,
@@ -382,7 +429,7 @@ function toVisit(row: VisitorReadRow, now: Date, overstayAllowedDays: number): V
     entryGuardId: row.checkedInBy ?? row.createdBy ?? "system",
     exitTime: (lastVehicleExit ?? row.checkedOut)?.toISOString(),
     exitGuardId: checkedOutVehicles.find((vehicle) => vehicle.checkedOut === lastVehicleExit?.toISOString())?.checkedOutBy ?? row.checkedOutBy ?? undefined,
-    status: toUiStatus(row, now, overstayAllowedDays),
+    status,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -423,6 +470,7 @@ async function readVisitors() {
         ${optionalVisitorSelect(columns, "passport_number", "passportNumber", "NULL::text")},
         v."vehicle_number" AS "vehicleNumber",
         ${optionalVisitorSelect(columns, "additional_vehicle_numbers", "additionalVehicleNumbers", "ARRAY[]::text[]")},
+        ${optionalVisitorSelect(columns, "other_visitor_names", "otherVisitorNames", "ARRAY[]::text[]")},
         v."checked_in" AS "checkedIn",
         v."checked_out" AS "checkedOut",
         vt."code" AS "typeCode",
@@ -563,13 +611,13 @@ function buildOccupancySeries(visits: Visit[], now: Date): OccupancyPoint[] {
     const hourStart = new Date(start.getTime() + i * 60 * 60 * 1000);
     const hourEnd = new Date(hourStart.getTime() + 60 * 60 * 1000);
     const inside = vehicleVisits.filter((visit) => {
-      if (visit.status === "pending") return false;
+      if (visit.status === "pending" || visit.status === "no_show" || visit.status === "partially_arrived") return false;
       const entry = new Date(visit.entryTime);
       const exit = visit.exitTime ? new Date(visit.exitTime) : null;
       return entry <= hourEnd && (!exit || exit >= hourStart);
     }).length;
     const entries = vehicleVisits.filter((visit) => {
-      if (visit.status === "pending") return false;
+      if (visit.status === "pending" || visit.status === "no_show" || visit.status === "partially_arrived") return false;
       const entry = new Date(visit.entryTime);
       return entry >= hourStart && entry < hourEnd;
     }).length;
@@ -603,6 +651,7 @@ function expandInsideVehicleVisits(visits: Visit[]): Visit[] {
 }
 
 function getVehicleUiStatus(visit: Visit, vehicle: VisitVehicle): Status {
+  if (vehicle.displayStatus) return vehicle.displayStatus;
   if (vehicle.status === "checked_in") {
     if (visit.status === "flagged" || visit.status === "overstayed") return visit.status;
     return "inside";
@@ -671,9 +720,7 @@ export async function getVisitById(id: string) {
   }
   if (row.qrTokenJti) {
     const visitDate = toVisitDateInput(row.visitDate);
-    const expiresAt = visitDate
-      ? getPreRegistrationTokenExpiresAt(visitDate)
-      : getVisitTokenExpiresAt(row.createdAt);
+    const expiresAt = getVisitorPolicyExpiresAt(row);
     visit.qrToken = await signVisitToken(row.id, row.qrTokenJti, row.createdAt, expiresAt);
     visit.qrTokenExpiresAt = expiresAt.toISOString();
   }
@@ -992,19 +1039,30 @@ export async function getParkingVehicles(): Promise<Vehicle[]> {
     FROM "parking"."vehicles"
     ORDER BY "blacklisted" DESC, "plate_normalised" ASC
   `)) as VehicleReadRow[];
+  const staffLookupKeys = rows
+    .filter((row) => row.ownerType === "staff")
+    .map((row) => row.staffId ?? row.ownerEmail ?? row.ownerName);
+  const staffByKey = await getHostsByStaffIds(staffLookupKeys);
 
-  return rows.map((row) => ({
-    id: row.id,
-    plate: row.plate,
-    plateNormalised: row.plateNormalised,
-    ownerName: row.ownerName ?? undefined,
-    ownerContact: row.ownerContact ?? undefined,
-    ownerEmail: row.ownerEmail ?? undefined,
-    ownerType: toOwnerType(row.ownerType),
-    staffId: row.staffId ?? undefined,
-    notes: row.notes ?? undefined,
-    blacklisted: row.blacklisted,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  }));
+  return rows.map((row) => {
+    const staff = row.ownerType === "staff"
+      ? staffByKey.get(normaliseLookupKey(row.staffId ?? row.ownerEmail ?? row.ownerName))
+      : undefined;
+
+    return {
+      id: row.id,
+      plate: row.plate,
+      plateNormalised: row.plateNormalised,
+      ownerName: staff?.name ?? row.ownerName ?? undefined,
+      ownerContact: staff?.phone ?? row.ownerContact ?? undefined,
+      ownerEmail: staff?.email ?? row.ownerEmail ?? undefined,
+      ownerDepartment: row.ownerType === "staff" ? staff?.department : undefined,
+      ownerType: toOwnerType(row.ownerType),
+      staffId: row.ownerType === "visitor" ? undefined : staff?.staffId ?? row.staffId ?? undefined,
+      notes: row.notes ?? undefined,
+      blacklisted: row.blacklisted,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+  });
 }

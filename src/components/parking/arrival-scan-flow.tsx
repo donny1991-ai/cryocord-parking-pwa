@@ -3,7 +3,7 @@
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { Ban, CameraOff, CheckCircle2, LogIn, PhoneCall, ScanLine, ShieldCheck, X } from "lucide-react";
+import { Ban, CameraOff, CheckCircle2, LogIn, PhoneCall, Plus, ScanLine, ShieldCheck, X } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/ui/badge";
@@ -35,6 +35,7 @@ interface ScannedVisitor {
   remarks: string | null;
   visitTime: string | null;
   visitorCount: number | null;
+  otherVisitorNames: string[];
   hostStaffId: string | null;
   hostDepartment: string | null;
   host: ScannedHost | null;
@@ -77,6 +78,7 @@ interface VisitorDraft {
   remarks: string;
   visitTime: string;
   visitorCount: string;
+  otherVisitorNames: string[];
   hostStaffId: string;
   hostDepartment: string;
   flagReason: string;
@@ -97,6 +99,7 @@ function toDraft(visitor: ScannedVisitor): VisitorDraft {
     remarks: visitor.remarks ?? "",
     visitTime: visitor.visitTime ?? "",
     visitorCount: visitor.visitorCount == null ? "" : String(visitor.visitorCount),
+    otherVisitorNames: visitor.otherVisitorNames ?? [],
     hostStaffId: visitor.hostStaffId ?? "",
     hostDepartment: visitor.hostDepartment ?? "",
     flagReason: visitor.flagReason ?? "",
@@ -116,6 +119,13 @@ function parseAdditionalVehicleNumbers(value: string, primaryPlate: string) {
       seen.add(normalised);
       return true;
     });
+}
+
+function parsePastedNames(value: string) {
+  return value
+    .split(/[\n,;]+/)
+    .map((name) => name.trim().replace(/\s+/g, " "))
+    .filter(Boolean);
 }
 
 export function ArrivalScanFlow() {
@@ -178,7 +188,10 @@ export function ArrivalScanFlow() {
           token: pendingToken,
           action: "check_in",
           vehicleNumber,
-          visitor: draft,
+          visitor: {
+            ...draft,
+            otherVisitorNames: (Number(draft.visitorCount) || 0) > 1 ? draft.otherVisitorNames : [],
+          },
         }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -241,6 +254,37 @@ export function ArrivalScanFlow() {
     setScanError(null);
   }
 
+  function updateDraftVisitorCount(value: string) {
+    if (!draft) return;
+
+    const count = Number(value);
+    const nextOtherVisitorNames =
+      Number.isInteger(count) && count > 1
+        ? [
+            ...draft.otherVisitorNames.slice(0, count - 1),
+            ...Array.from({ length: Math.max(0, count - 1 - draft.otherVisitorNames.length) }, () => ""),
+          ]
+        : [];
+
+    setDraft({ ...draft, visitorCount: value, otherVisitorNames: nextOtherVisitorNames });
+  }
+
+  function addDraftOtherVisitorRow() {
+    if (!draft) return;
+    const otherVisitorNames = [...draft.otherVisitorNames, ""];
+    setDraft({ ...draft, visitorCount: String(otherVisitorNames.length + 1), otherVisitorNames });
+  }
+
+  function removeDraftOtherVisitorRow(index: number) {
+    if (!draft) return;
+    const otherVisitorNames = draft.otherVisitorNames.filter((_, itemIndex) => itemIndex !== index);
+    setDraft({
+      ...draft,
+      visitorCount: otherVisitorNames.length > 0 ? String(otherVisitorNames.length + 1) : "1",
+      otherVisitorNames,
+    });
+  }
+
   const remarksRequired = Boolean(draft && (draft.typeCode === "other" || draft.purpose === "other"));
   const hasIdentityDocument = draft
     ? draft.identityType === "nric"
@@ -287,13 +331,16 @@ export function ArrivalScanFlow() {
             <Chip className="border-emerald-500/20 bg-emerald-500/10 text-emerald-700">Inside</Chip>
             <Chip tone="brand">{visitTypeLabel(checkedIn.typeCode)}</Chip>
           </div>
-          <Row label="Visitor" value={checkedIn.name} />
+          <Row label="Main visitor" value={checkedIn.name} />
           <Row label="Contact" value={checkedIn.phoneNumber} />
           {(checkedIn.additionalVehicleNumbers?.length ?? 0) > 0 && (
             <Row label="Other plates" value={checkedIn.additionalVehicleNumbers.join(", ")} />
           )}
           {checkedIn.visitTime && <Row label="Visit time" value={checkedIn.visitTime} />}
           {checkedIn.visitorCount && <Row label="Visitors" value={String(checkedIn.visitorCount)} />}
+          {(checkedIn.otherVisitorNames?.length ?? 0) > 0 && (
+            <Row label="Additional visitors" value={checkedIn.otherVisitorNames.join(", ")} />
+          )}
         </GlassCard>
 
         <div className="mx-auto grid max-w-sm grid-cols-2 gap-3">
@@ -449,10 +496,10 @@ export function ArrivalScanFlow() {
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Visitor" required>
+            <Field label="Main visitor" required>
               <Input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
             </Field>
-            <Field label="Contact" required>
+            <Field label="Main visitor contact" required>
               <Input
                 value={draft.phoneNumber}
                 onChange={(event) => setDraft({ ...draft, phoneNumber: event.target.value })}
@@ -469,7 +516,11 @@ export function ArrivalScanFlow() {
             />
           </Field>
 
-          <Field label="Identity document" required hint="Choose NRIC for Malaysians, passport for non-Malaysians.">
+          <Field
+            label="Main visitor identity document"
+            required
+            hint="Only the main visitor needs NRIC/passport details. Additional visitors are recorded by name."
+          >
             <div className="grid grid-cols-2 gap-2 rounded-2xl bg-white/40 p-1">
               <button
                 type="button"
@@ -495,7 +546,7 @@ export function ArrivalScanFlow() {
           </Field>
 
           {draft.identityType === "nric" ? (
-            <Field label="NRIC number" required hint="Format: YYMMDD-PB-####.">
+            <Field label="Main visitor NRIC number" required hint="Main visitor only. Format: YYMMDD-PB-####.">
               <Input
                 value={draft.nric}
                 onChange={(event) => setDraft({ ...draft, nric: event.target.value })}
@@ -504,7 +555,7 @@ export function ArrivalScanFlow() {
               />
             </Field>
           ) : (
-            <Field label="Passport number" required>
+            <Field label="Main visitor passport number" required hint="Main visitor only.">
               <Input
                 value={draft.passportNumber}
                 onChange={(event) => setDraft({ ...draft, passportNumber: event.target.value.toUpperCase() })}
@@ -548,7 +599,7 @@ export function ArrivalScanFlow() {
             <Field label="Number of visitors">
               <Input
                 value={draft.visitorCount}
-                onChange={(event) => setDraft({ ...draft, visitorCount: event.target.value })}
+                onChange={(event) => updateDraftVisitorCount(event.target.value)}
                 type="number"
                 inputMode="numeric"
                 min={1}
@@ -557,6 +608,58 @@ export function ArrivalScanFlow() {
               />
             </Field>
           </div>
+
+          {(Number(draft.visitorCount) || 0) > 1 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-semibold text-ink-soft">Additional visitors</span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="border-dashed bg-white/30"
+                  onClick={addDraftOtherVisitorRow}
+                >
+                  <Plus className="h-4 w-4" /> Add visitor
+                </Button>
+              </div>
+
+              <div className="space-y-2">
+                {draft.otherVisitorNames.map((otherVisitorName, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <Input
+                      value={otherVisitorName}
+                      onChange={(event) => {
+                        const pastedNames = parsePastedNames(event.target.value);
+                        if (pastedNames.length > 1) {
+                          const next = [...draft.otherVisitorNames];
+                          next.splice(index, 1, ...pastedNames);
+                          setDraft({ ...draft, visitorCount: String(next.length + 1), otherVisitorNames: next });
+                          return;
+                        }
+
+                        const next = [...draft.otherVisitorNames];
+                        next[index] = event.target.value;
+                        setDraft({ ...draft, otherVisitorNames: next });
+                      }}
+                      placeholder={`Additional visitor ${index + 1} full name`}
+                      aria-label={`Other visitor ${index + 1} name`}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="shrink-0 rounded-xl bg-white/55 text-ink-soft"
+                      aria-label={`Remove other visitor ${index + 1}`}
+                      onClick={() => removeDraftOtherVisitorRow(index)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Host ID">

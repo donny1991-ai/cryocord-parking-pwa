@@ -61,13 +61,17 @@ export async function seedParkingUser(
     [id, email],
   );
 
-  await manager.insert(ParkingUserSchema, {
-    id,
-    name,
-    phone,
-    role,
-    active,
-  });
+  await manager.upsert(
+    ParkingUserSchema,
+    {
+      id,
+      name,
+      phone,
+      role,
+      active,
+    },
+    ["id"],
+  );
 
   return manager.findOneByOrFail(ParkingUserSchema, { id });
 }

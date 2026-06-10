@@ -29,6 +29,8 @@ export function createVisitorInputFactory(overrides: Partial<CreateVisitorInput>
     vehicleNumber: vehicleNumberFactory(),
     typeCode: faker.helpers.arrayElement(visitorTypeCodes),
     remarks: faker.lorem.sentence(),
+    hostStaffId: "CCSB0698",
+    hostDepartment: "AI Projects Lab",
     guardId: `guard-${faker.string.alphanumeric({ length: 8, casing: "lower" })}`,
     ...overrides,
   };
@@ -59,6 +61,7 @@ export function visitorEntityFactory(overrides: Partial<VisitorEntity> = {}): Vi
     vehicleNumber,
     vehicleNumberNormalised: normalisePlate(vehicleNumber),
     additionalVehicleNumbers: [],
+    otherVisitorNames: [],
     checkedIn: null,
     checkedOut: null,
     typeId: 1,

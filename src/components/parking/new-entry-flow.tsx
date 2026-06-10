@@ -2,13 +2,14 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { BadgeCheck, Ban, Check, CheckCircle2, Pencil, Phone, Search, Send, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
+import { BadgeCheck, Ban, Check, CheckCircle2, Pencil, Phone, Plus, Search, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input, Select, Field, Textarea } from "@/components/ui/input";
 import { Chip } from "@/components/ui/badge";
 import { PlateCapture } from "./plate-capture";
 import { QrPass } from "./qr-pass";
+import { QrPassShareButton } from "./qr-pass-share-button";
 import { VISIT_TYPES, PURPOSES, type VisitType, type Purpose } from "@/lib/enums";
 import { labelize } from "@/lib/labels";
 import { cn, formatDateTime, normalisePlate } from "@/lib/utils";
@@ -16,6 +17,27 @@ import { buildPassMessage, waLink } from "@/lib/whatsapp";
 import type { Employee, Vehicle } from "@/lib/types";
 
 type Step = "capture" | "form" | "pass";
+
+function normaliseNameInput(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function parseNameRows(value: string[]) {
+  return value
+    .map(normaliseNameInput)
+    .filter(Boolean);
+}
+
+function parsePastedNames(value: string) {
+  return value
+    .split(/[\n,;]+/)
+    .map((name) => name.trim().replace(/\s+/g, " "))
+    .filter(Boolean);
+}
+
+function normaliseAdditionalVehicleInput(value: string) {
+  return value.trim().toUpperCase().replace(/\s+/g, " ");
+}
 
 export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; vehicles: Vehicle[] }) {
   const [step, setStep] = useState<Step>("capture");
@@ -35,6 +57,8 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
   const [purpose, setPurpose] = useState<Purpose>("meeting");
   const [visitTime, setVisitTime] = useState("");
   const [visitorCount, setVisitorCount] = useState("");
+  const [otherVisitorNameRows, setOtherVisitorNameRows] = useState<string[]>([]);
+  const [additionalVehiclePlates, setAdditionalVehiclePlates] = useState<string[]>([]);
   const [purposeNotes, setPurposeNotes] = useState("");
   const [identityType, setIdentityType] = useState<"nric" | "passport">("nric");
   const [nric, setNric] = useState("");
@@ -70,6 +94,50 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
   const remarksRequired = visitType === "other" || purpose === "other";
   const hasIdentityDocument = identityType === "nric" ? nric.trim() : passportNumber.trim();
   const blockedVehicle = known?.blacklisted ? known : null;
+  const visitorCountNumber = useMemo(() => {
+    if (!visitorCount.trim()) return null;
+    const count = Number(visitorCount);
+    return Number.isInteger(count) && count > 0 ? count : null;
+  }, [visitorCount]);
+  const showOtherVisitorNames = Boolean(visitorCountNumber && visitorCountNumber > 1);
+  const otherVisitorNames = useMemo(() => parseNameRows(otherVisitorNameRows), [otherVisitorNameRows]);
+  const additionalVehicleNumbers = useMemo(
+    () => additionalVehiclePlates.map(normaliseAdditionalVehicleInput).filter(Boolean),
+    [additionalVehiclePlates],
+  );
+  const additionalVehicleRowsValid = additionalVehiclePlates.every((item) => normalisePlate(item).length >= 3);
+
+  function syncOtherVisitorRowsForCount(value: string) {
+    const count = Number(value);
+    if (!Number.isInteger(count) || count <= 1) {
+      setOtherVisitorNameRows([]);
+      return;
+    }
+
+    const targetRows = count - 1;
+    setOtherVisitorNameRows((rows) => {
+      if (rows.length === targetRows) return rows;
+      if (rows.length > targetRows) return rows.slice(0, targetRows);
+      return [...rows, ...Array.from({ length: targetRows - rows.length }, () => "")];
+    });
+  }
+
+  function updateVisitorCount(value: string) {
+    setVisitorCount(value);
+    syncOtherVisitorRowsForCount(value);
+  }
+
+  function addOtherVisitorRow() {
+    const next = [...otherVisitorNameRows, ""];
+    setOtherVisitorNameRows(next);
+    setVisitorCount(String(next.length + 1));
+  }
+
+  function removeOtherVisitorRow(index: number) {
+    const next = otherVisitorNameRows.filter((_, itemIndex) => itemIndex !== index);
+    setOtherVisitorNameRows(next);
+    setVisitorCount(next.length > 0 ? String(next.length + 1) : "1");
+  }
 
   function prefillKnownVehicle(p: string) {
     const normalised = normalisePlate(p);
@@ -107,13 +175,16 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
     prefillKnownVehicle(nextPlate);
   }
 
-  const canIssue =
+  const canIssue = Boolean(
     plate &&
     visitorName.trim() &&
     visitorContact.trim() &&
+    selectedHost &&
     hasIdentityDocument &&
     !blockedVehicle &&
-    (!remarksRequired || purposeNotes.trim());
+    additionalVehicleRowsValid &&
+    (!remarksRequired || purposeNotes.trim()),
+  );
 
   function selectHost(host: Employee) {
     setHostStaffId(host.staffId);
@@ -143,10 +214,12 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
           nric: identityType === "nric" && hasIdentityDocument ? nric : undefined,
           passportNumber: identityType === "passport" && hasIdentityDocument ? passportNumber : undefined,
           vehicleNumber: plate,
+          additionalVehicleNumbers: additionalVehicleNumbers.length > 0 ? additionalVehicleNumbers : undefined,
           typeCode: visitType,
           purpose,
           visitTime: visitTime || undefined,
           visitorCount: visitorCount || undefined,
+          otherVisitorNames: showOtherVisitorNames && otherVisitorNames.length > 0 ? otherVisitorNames : undefined,
           remarks: purposeNotes || undefined,
           hostStaffId: hostStaffId || undefined,
           hostDepartment: selectedHost?.department,
@@ -183,10 +256,16 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
   if (step === "pass" && issued) {
     const passUrl = origin ? `${origin}/pass/${encodeURIComponent(issued.token)}` : undefined;
     const validUntil = formatDateTime(issued.tokenExpiresAt);
-    const waHref = waLink(
-      visitorContact,
-      buildPassMessage({ visitorName, plate, visitType, validUntil, passUrl }),
-    );
+    const passHeading = "Keep for exit scan";
+    const passMessage = buildPassMessage({
+      visitorName,
+      plate,
+      additionalPlates: additionalVehicleNumbers,
+      visitType,
+      validUntil,
+      passUrl,
+    });
+    const waHref = waLink(visitorContact, passMessage);
     return (
       <div className="space-y-5">
         <div className="flex flex-col items-center gap-1 text-center animate-fade-up">
@@ -197,28 +276,25 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
         <QrPass
           token={issued.token}
           plate={plate}
+          additionalPlates={additionalVehicleNumbers}
           visitorName={visitorName}
           visitType={visitType}
           validUntil={validUntil}
+          heading={passHeading}
         />
         <div className="mx-auto flex max-w-sm flex-col gap-2.5">
-          {waHref ? (
-            <a
-              href={waHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={cn(buttonVariants({ variant: "outline" }), "w-full")}
-            >
-              <Send className="h-4 w-4" /> Send to visitor via WhatsApp
-            </a>
-          ) : (
-            <div className="text-center">
-              <Button variant="outline" className="w-full" disabled>
-                <Send className="h-4 w-4" /> Send via WhatsApp
-              </Button>
-              <p className="mt-1 text-xs text-ink-faint">Add a valid contact number to enable.</p>
-            </div>
-          )}
+          <QrPassShareButton
+            token={issued.token}
+            plate={plate}
+            additionalPlates={additionalVehicleNumbers}
+            visitorName={visitorName}
+            visitType={visitType}
+            validUntil={validUntil}
+            heading={passHeading}
+            message={passMessage}
+            whatsappHref={waHref}
+          />
+          {!waHref && <p className="text-center text-xs text-ink-faint">Add a valid contact number to open WhatsApp text.</p>}
           <Link href="/parking">
             <Button variant="glass" className="w-full">Done</Button>
           </Link>
@@ -331,10 +407,57 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
       ) : null}
 
       <GlassCard padding="lg" className="space-y-4">
-        <Field label="Visitor name" required>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-semibold text-ink-soft">Additional vehicle plates</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="border-dashed bg-white/30"
+              onClick={() => setAdditionalVehiclePlates((items) => [...items, ""])}
+            >
+              <Plus className="h-4 w-4" /> Add vehicle
+            </Button>
+          </div>
+
+          {additionalVehiclePlates.length > 0 && (
+            <div className="space-y-2">
+              {additionalVehiclePlates.map((additionalPlate, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <Input
+                    value={additionalPlate}
+                    onChange={(event) => {
+                      const next = [...additionalVehiclePlates];
+                      next[index] = event.target.value.toUpperCase();
+                      setAdditionalVehiclePlates(next);
+                    }}
+                    placeholder={`Additional plate ${index + 1}`}
+                    inputMode="text"
+                    autoCapitalize="characters"
+                    className="font-bold tracking-wide"
+                    aria-label={`Additional vehicle ${index + 1}`}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="shrink-0 rounded-xl bg-white/55 text-ink-soft"
+                    aria-label={`Remove additional vehicle ${index + 1}`}
+                    onClick={() => setAdditionalVehiclePlates((items) => items.filter((_, itemIndex) => itemIndex !== index))}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <Field label="Main visitor name" required>
           <Input value={visitorName} onChange={(e) => setVisitorName(e.target.value)} placeholder="Full name" />
         </Field>
-        <Field label="Contact number" required>
+        <Field label="Main visitor contact number" required>
           <Input
             value={visitorContact}
             onChange={(e) => setVisitorContact(e.target.value)}
@@ -375,7 +498,7 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
           <Field label="Number of visitors">
             <Input
               value={visitorCount}
-              onChange={(e) => setVisitorCount(e.target.value)}
+              onChange={(e) => updateVisitorCount(e.target.value)}
               type="number"
               inputMode="numeric"
               min={1}
@@ -384,6 +507,59 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
             />
           </Field>
         </div>
+
+        {showOtherVisitorNames && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-semibold text-ink-soft">Additional visitors</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="border-dashed bg-white/30"
+                onClick={addOtherVisitorRow}
+              >
+                <Plus className="h-4 w-4" /> Add visitor
+              </Button>
+            </div>
+
+            <div className="space-y-2">
+              {otherVisitorNameRows.map((otherVisitorName, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <Input
+                    value={otherVisitorName}
+                    onChange={(event) => {
+                      const pastedNames = parsePastedNames(event.target.value);
+                      if (pastedNames.length > 1) {
+                        const next = [...otherVisitorNameRows];
+                        next.splice(index, 1, ...pastedNames);
+                        setOtherVisitorNameRows(next);
+                        setVisitorCount(String(next.length + 1));
+                        return;
+                      }
+
+                      const next = [...otherVisitorNameRows];
+                      next[index] = event.target.value;
+                      setOtherVisitorNameRows(next);
+                    }}
+                    placeholder={`Additional visitor ${index + 1} full name`}
+                    aria-label={`Other visitor ${index + 1} name`}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="shrink-0 rounded-xl bg-white/55 text-ink-soft"
+                    aria-label={`Remove other visitor ${index + 1}`}
+                    onClick={() => removeOtherVisitorRow(index)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <Field
           label="Remarks"
@@ -399,7 +575,9 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
         </Field>
 
         <div className="space-y-1.5">
-          <span className="block text-sm font-semibold text-ink-soft">Host</span>
+          <span className="block text-sm font-semibold text-ink-soft">
+            Host <span className="text-brand">*</span>
+          </span>
           <div className="relative">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
             <Input
@@ -417,6 +595,7 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
               aria-expanded={hostSearchOpen}
               aria-controls="host-search-results"
               aria-autocomplete="list"
+              aria-required="true"
             />
             {hostQuery && (
               <button
@@ -488,7 +667,11 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
           </div>
         )}
 
-        <Field label="Identity document" required hint="Choose NRIC for Malaysians, passport for non-Malaysians.">
+        <Field
+          label="Main visitor identity document"
+          required
+          hint="Only the main visitor needs NRIC/passport details. Additional visitors are recorded by name."
+        >
           <div className="grid grid-cols-2 gap-2 rounded-2xl bg-white/40 p-1">
             <button
               type="button"
@@ -514,11 +697,11 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
         </Field>
 
         {identityType === "nric" ? (
-          <Field label="NRIC number" required hint="Format: YYMMDD-PB-####.">
+          <Field label="Main visitor NRIC number" required hint="Main visitor only. Format: YYMMDD-PB-####.">
             <Input value={nric} onChange={(e) => setNric(e.target.value)} placeholder="900101-14-1234" />
           </Field>
         ) : (
-          <Field label="Passport number" required>
+          <Field label="Main visitor passport number" required hint="Main visitor only.">
             <Input
               value={passportNumber}
               onChange={(e) => setPassportNumber(e.target.value.toUpperCase())}

@@ -1,18 +1,27 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
+import { POST as createPublicVisitorRequestEndpoint } from "@/app/api/public/visitor-requests/route";
+import { PATCH as reviewVisitorRequestEndpoint } from "@/app/api/visitor-requests/[id]/route";
 import { POST as createVisitorEndpoint } from "@/app/api/visitors/route";
 import { POST as scanVisitorEndpoint } from "@/app/api/visitors/scan/route";
 import {
   DELETE as clearVisitorFlagEndpoint,
   PUT as flagVisitorEndpoint,
 } from "@/app/api/admin/visitors/[id]/flag/route";
+import { POST as createVehicleEndpoint } from "@/app/api/admin/vehicles/route";
 import {
   DELETE as deleteVehicleEndpoint,
   PATCH as updateVehicleEndpoint,
 } from "@/app/api/admin/vehicles/[id]/route";
 import { POST as cancelVisitorEndpoint } from "@/app/api/visitors/[id]/cancel/route";
 import { AppDataSource } from "@/db/data-source";
-import { VehicleSchema, VisitorScanEventSchema, VisitorSchema, VisitorVehicleSchema } from "@/db/entities";
+import {
+  VehicleSchema,
+  VisitorRequestSchema,
+  VisitorScanEventSchema,
+  VisitorSchema,
+  VisitorVehicleSchema,
+} from "@/db/entities";
 import { createVisitorInputFactory } from "@/test/factories/visitor.factory";
 import { refreshParkingTestDatabase } from "@/test/refresh-database";
 import { seedHrHost } from "@/test/seeders/hr-host.seeder";
@@ -20,7 +29,7 @@ import { seedParkingUser } from "@/test/seeders/parking-user.seeder";
 import { seedVisitorTypes } from "@/test/seeders/visitor-type.seeder";
 import { signTestSupabaseAccessToken } from "@/test/auth-token";
 import { getPreRegistrationTokenExpiresAt, signVisitToken } from "@/lib/qr";
-import { getParkingSnapshot, getVisitById } from "./parking-data";
+import { getParkingSnapshot, getParkingVehicles, getVisitById } from "./parking-data";
 import { getHostDirectory } from "./hosts";
 import {
   createVisitorPass,
@@ -88,6 +97,7 @@ describe("visitor pass database flow", () => {
       typeCode: "visitor",
       visitTime: "09:30",
       visitorCount: 3,
+      otherVisitorNames: ["Aminah Guest", "Siti Guest"],
       remarks: "  integration test visitor  ",
     });
 
@@ -106,6 +116,7 @@ describe("visitor pass database flow", () => {
       checkedOut: null,
       visitTime: "09:30",
       visitorCount: 3,
+      otherVisitorNames: ["Aminah Guest", "Siti Guest"],
       remarks: "integration test visitor",
     });
 
@@ -118,6 +129,7 @@ describe("visitor pass database flow", () => {
     expect(checkedIn.status).toBe("checked_in");
     expect(checkedIn.checkedIn).toEqual(expect.any(String));
     expect(checkedIn.checkedOut).toBeNull();
+    expect(checkedIn.otherVisitorNames).toEqual(["Aminah Guest", "Siti Guest"]);
 
     const checkedOut = await scanVisitorPass({
       token: issued.token,
@@ -379,7 +391,7 @@ describe("visitor pass database flow", () => {
 
     await expect(getVisitById(issued.visitor.id)).resolves.toMatchObject({
       plate: "CAR A",
-      status: "pending",
+      status: "partially_arrived",
       vehicles: expect.arrayContaining([
         expect.objectContaining({ plate: "CAR A", status: "checked_out" }),
         expect.objectContaining({ plate: "CAR B", status: "checked_out" }),
@@ -414,6 +426,36 @@ describe("visitor pass database flow", () => {
         }),
       ]),
     );
+  });
+
+  it("displays expired pending registrations and vehicles as no-show without changing database status", async () => {
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({
+        vehicleNumber: "NO SHOW A",
+        additionalVehicleNumbers: ["NO SHOW B"],
+        typeCode: "visitor",
+      }),
+    );
+    await AppDataSource.manager.query(
+      `
+        UPDATE "parking"."visitors"
+        SET "created_at" = now() - interval '2 days'
+        WHERE "id" = $1
+      `,
+      [issued.visitor.id],
+    );
+
+    const visit = await getVisitById(issued.visitor.id);
+    expect(visit).toMatchObject({
+      status: "no_show",
+      vehicles: expect.arrayContaining([
+        expect.objectContaining({ plate: "NO SHOW A", status: "pending", displayStatus: "no_show" }),
+        expect.objectContaining({ plate: "NO SHOW B", status: "pending", displayStatus: "no_show" }),
+      ]),
+    });
+
+    const saved = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: issued.visitor.id });
+    expect(saved.status).toBe("pending");
   });
 
   it("allows the same QR to be reviewed again while linked vehicles are still pending", async () => {
@@ -998,6 +1040,44 @@ describe("visitor pass database flow", () => {
     expect(active).toBe(1);
   });
 
+  it("returns a conflict when immediate entry uses a vehicle already checked in", async () => {
+    const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
+    const token = await signTestSupabaseAccessToken(guard.id);
+    const active = await createVisitorPass(
+      createVisitorInputFactory({ vehicleNumber: "HEHE", typeCode: "visitor" }),
+    );
+    await scanVisitorPass({ token: active.token, action: "check_in", guardId: guard.id });
+
+    const response = await createVisitorEndpoint(
+      jsonRequest(
+        "/api/visitors",
+        {
+          ...createVisitorInputFactory({
+            name: "Visitor1",
+            phoneNumber: "0196776100",
+            identityType: "nric",
+            nric: "900101141234",
+            vehicleNumber: "HEHE",
+            typeCode: "visitor",
+            purpose: "meeting",
+            visitorCount: "3",
+            remarks: "hahahiuhihtokitoki",
+          }),
+          otherVisitorNames: ["Visitor2", "Visitor3"],
+          hostStaffId: "CCSB0698",
+          hostDepartment: "AI Projects Lab",
+          checkInOnCreate: true,
+        },
+        token,
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Vehicle is already checked in under another active visit.",
+    });
+  });
+
   it("allows the same vehicle to check in again after the previous visitor checks out", async () => {
     const first = await createVisitorPass(
       createVisitorInputFactory({ vehicleNumber: "JQ 900", typeCode: "visitor" }),
@@ -1011,6 +1091,100 @@ describe("visitor pass database flow", () => {
     const checkedIn = await scanVisitorPass({ token: second.token, action: "auto" });
 
     expect(checkedIn.status).toBe("checked_in");
+  });
+
+  it("accepts public wall-QR visitor requests without exposing HR host lookup", async () => {
+    const response = await createPublicVisitorRequestEndpoint(
+      jsonRequest("/api/public/visitor-requests", {
+        name: "Wall QR Visitor",
+        phoneNumber: "0196776100",
+        organisation: "Public Company",
+        identityType: "nric",
+        nric: "900101-14-1234",
+        vehicleNumber: "WALL 100",
+        purpose: "meeting",
+        visitorCount: "3",
+        otherVisitorNames: ["Second Visitor", "Third Visitor"],
+        requestedHostText: "AI Projects Lab",
+        remarks: "Submitted from lobby wall QR",
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.request).toMatchObject({
+      name: "Wall QR Visitor",
+      vehicleNumber: "WALL 100",
+      requestedHostText: "AI Projects Lab",
+      status: "submitted",
+      otherVisitorNames: ["Second Visitor", "Third Visitor"],
+    });
+
+    await expect(AppDataSource.manager.count(VisitorSchema)).resolves.toBe(0);
+    await expect(AppDataSource.manager.findOneByOrFail(VisitorRequestSchema, { id: payload.request.id })).resolves.toMatchObject({
+      vehicleNumber: "WALL 100",
+      status: "submitted",
+      requestedHostText: "AI Projects Lab",
+    });
+  });
+
+  it("converts a public visitor request only after a guard assigns an HR host", async () => {
+    const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
+    const token = await signTestSupabaseAccessToken(guard.id);
+    const host = await seedHrHost(AppDataSource.manager, {
+      id: 690,
+      empNo: "CCSB0690",
+      name: "Request Host",
+      department: "AI Projects Lab",
+      email: "request.host@cryocord.test",
+      phone: "+60126900000",
+    });
+    const createResponse = await createPublicVisitorRequestEndpoint(
+      jsonRequest("/api/public/visitor-requests", {
+        name: "Convert Me",
+        phoneNumber: "0196776111",
+        identityType: "passport",
+        passportNumber: "A1234567",
+        vehicleNumber: "REQ 200",
+        purpose: "meeting",
+        requestedHostText: "Dr. Request",
+      }),
+    );
+    const created = await createResponse.json();
+
+    const missingHostResponse = await reviewVisitorRequestEndpoint(
+      jsonRequest(`/api/visitor-requests/${created.request.id}`, { hostStaffId: "" }, token, "PATCH"),
+      { params: Promise.resolve({ id: created.request.id }) },
+    );
+    expect(missingHostResponse.status).toBe(400);
+    await expect(missingHostResponse.json()).resolves.toMatchObject({
+      error: "Host must be selected from the HR directory.",
+    });
+
+    const convertResponse = await reviewVisitorRequestEndpoint(
+      jsonRequest(`/api/visitor-requests/${created.request.id}`, { hostStaffId: host.staffId }, token, "PATCH"),
+      { params: Promise.resolve({ id: created.request.id }) },
+    );
+
+    expect(convertResponse.status).toBe(200);
+    const payload = await convertResponse.json();
+    expect(payload.request).toMatchObject({
+      id: created.request.id,
+      status: "converted",
+      convertedVisitorId: payload.issued.visitor.id,
+      reviewedBy: guard.id,
+    });
+    expect(payload.issued.visitor).toMatchObject({
+      name: "Convert Me",
+      vehicleNumber: "REQ 200",
+      status: "checked_in",
+      hostStaffId: host.staffId,
+      hostDepartment: host.department,
+    });
+
+    const savedRequest = await AppDataSource.manager.findOneByOrFail(VisitorRequestSchema, { id: created.request.id });
+    expect(savedRequest.status).toBe("converted");
+    expect(savedRequest.convertedVisitorId).toBe(payload.issued.visitor.id);
   });
 
   it("rejects unauthenticated visitor endpoint requests", async () => {
@@ -1035,6 +1209,24 @@ describe("visitor pass database flow", () => {
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toMatchObject({
       error: "Parking access is not enabled for this account.",
+    });
+  });
+
+  it("requires a host on authenticated visitor endpoint requests", async () => {
+    const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
+    const token = await signTestSupabaseAccessToken(guard.id);
+
+    const response = await createVisitorEndpoint(
+      jsonRequest(
+        "/api/visitors",
+        createVisitorInputFactory({ typeCode: "visitor", hostStaffId: "", hostDepartment: "" }),
+        token,
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Host is required.",
     });
   });
 
@@ -1082,6 +1274,8 @@ describe("visitor pass database flow", () => {
           visitTime: "13:45",
           visitorCount: 6,
           remarks: "Testing other remarks",
+          hostStaffId: "CCSB0698",
+          hostDepartment: "AI Projects Lab",
           checkInOnCreate: false,
         },
         token,
@@ -1531,6 +1725,177 @@ describe("visitor pass database flow", () => {
 
     expect(deleteResponse.status).toBe(200);
     await expect(AppDataSource.manager.findOneBy(VehicleSchema, { id: vehicle.id })).resolves.toBeNull();
+  });
+
+  it("clears known vehicle staff id when the owner type is visitor", async () => {
+    const admin = await seedParkingUser(AppDataSource.manager, { role: "admin" });
+    const token = await signTestSupabaseAccessToken(admin.id);
+    const vehicle = await AppDataSource.manager.save(VehicleSchema, {
+      plate: "VIS REG",
+      plateNormalised: "VISREG",
+      ownerName: "Visitor Registry",
+      ownerType: "vendor",
+      staffId: "EMP-OLD",
+      blacklisted: false,
+    });
+
+    const updateResponse = await updateVehicleEndpoint(
+      jsonRequest(
+        `/api/admin/vehicles/${vehicle.id}`,
+        {
+          ownerType: "visitor",
+          staffId: "EMP-SHOULD-NOT-SAVE",
+        },
+        token,
+        "PATCH",
+      ),
+      { params: Promise.resolve({ id: vehicle.id }) },
+    );
+
+    expect(updateResponse.status).toBe(200);
+    const payload = await updateResponse.json();
+    expect(payload.vehicle).toMatchObject({
+      id: vehicle.id,
+      ownerType: "visitor",
+    });
+    expect(payload.vehicle).not.toHaveProperty("staffId");
+
+    const saved = await AppDataSource.manager.findOneByOrFail(VehicleSchema, { id: vehicle.id });
+    expect(saved.staffId).toBeNull();
+  });
+
+  it("uses HR public user details for staff vehicle display and ignores duplicate owner fields", async () => {
+    const admin = await seedParkingUser(AppDataSource.manager, { role: "admin" });
+    const token = await signTestSupabaseAccessToken(admin.id);
+    const host = await seedHrHost(AppDataSource.manager, {
+      id: 88,
+      empNo: "EMP-0088",
+      name: "Nurul Huda",
+      email: "nurul.huda@cryocord.test",
+      phone: "+60128880000",
+      department: "Sales Operations",
+    });
+    const vehicle = await AppDataSource.manager.save(VehicleSchema, {
+      plate: "WPT 332",
+      plateNormalised: "WPT332",
+      ownerName: "Stale Registry Name",
+      ownerContact: "+60000000000",
+      ownerEmail: "stale@example.com",
+      ownerType: "staff",
+      staffId: host.staffId,
+      blacklisted: false,
+    });
+
+    const updateResponse = await updateVehicleEndpoint(
+      jsonRequest(
+        `/api/admin/vehicles/${vehicle.id}`,
+        {
+          ownerType: "staff",
+          ownerName: "Spoofed Owner",
+          ownerContact: "+60999999999",
+          ownerEmail: "spoofed@example.com",
+        },
+        token,
+        "PATCH",
+      ),
+      { params: Promise.resolve({ id: vehicle.id }) },
+    );
+
+    expect(updateResponse.status).toBe(200);
+    await expect(updateResponse.json()).resolves.toMatchObject({
+      vehicle: {
+        id: vehicle.id,
+        ownerType: "staff",
+        ownerName: host.name,
+        ownerContact: host.phone,
+        ownerEmail: host.email,
+        ownerDepartment: host.department,
+        staffId: host.staffId,
+      },
+    });
+
+    const saved = await AppDataSource.manager.findOneByOrFail(VehicleSchema, { id: vehicle.id });
+    expect(saved).toMatchObject({
+      ownerName: null,
+      ownerContact: null,
+      ownerEmail: null,
+      staffId: host.staffId,
+    });
+
+    await expect(getParkingVehicles()).resolves.toContainEqual(expect.objectContaining({
+      id: vehicle.id,
+      ownerName: host.name,
+      ownerContact: host.phone,
+      ownerEmail: host.email,
+      ownerDepartment: host.department,
+      staffId: host.staffId,
+    }));
+  });
+
+  it("creates staff registry vehicles only with an HR directory staff owner", async () => {
+    const admin = await seedParkingUser(AppDataSource.manager, { role: "admin" });
+    const token = await signTestSupabaseAccessToken(admin.id);
+    const host = await seedHrHost(AppDataSource.manager, {
+      id: 89,
+      empNo: "EMP-0089",
+      name: "Aiman Staff",
+      email: "aiman.staff@cryocord.test",
+      phone: "+60128890000",
+      department: "Operations",
+    });
+
+    const missingStaffResponse = await createVehicleEndpoint(
+      jsonRequest(
+        "/api/admin/vehicles",
+        {
+          plate: "STAFF BAD",
+          ownerType: "staff",
+          ownerName: "Typed Staff Name",
+        },
+        token,
+      ),
+    );
+
+    expect(missingStaffResponse.status).toBe(400);
+    await expect(missingStaffResponse.json()).resolves.toMatchObject({
+      error: "Staff owner must be selected from the HR directory.",
+    });
+
+    const createResponse = await createVehicleEndpoint(
+      jsonRequest(
+        "/api/admin/vehicles",
+        {
+          plate: "STAFF OK",
+          ownerType: "staff",
+          ownerName: "Typed Staff Name",
+          ownerContact: "+60999999999",
+          ownerEmail: "typed@example.com",
+          staffId: host.staffId,
+        },
+        token,
+      ),
+    );
+
+    expect(createResponse.status).toBe(201);
+    const payload = await createResponse.json();
+    expect(payload.vehicle).toMatchObject({
+      plate: "STAFF OK",
+      plateNormalised: "STAFFOK",
+      ownerType: "staff",
+      ownerName: host.name,
+      ownerContact: host.phone,
+      ownerEmail: host.email,
+      ownerDepartment: host.department,
+      staffId: host.staffId,
+    });
+
+    const saved = await AppDataSource.manager.findOneByOrFail(VehicleSchema, { id: payload.vehicle.id });
+    expect(saved).toMatchObject({
+      ownerName: null,
+      ownerContact: null,
+      ownerEmail: null,
+      staffId: host.staffId,
+    });
   });
 
   it("blocks deleting a known vehicle while its plate is currently checked in", async () => {

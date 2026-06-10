@@ -26,7 +26,10 @@ test.describe("vehicle blacklist", () => {
     await page.goto("/parking/entry");
     await expect(page.getByRole("heading", { name: "New Entry" })).toBeVisible();
 
-    await page.getByPlaceholder("e.g. WA 18 K").fill(seed.plate);
+    const plateInput = page.getByPlaceholder("e.g. WA 18 K");
+    await plateInput.pressSequentially(seed.plate);
+    await expect(plateInput).toHaveValue(seed.plate);
+    await expect(page.getByRole("button", { name: "Use" })).toBeEnabled();
     await page.getByRole("button", { name: "Use" }).click();
 
     await expect(page.getByText("Vehicle is blacklisted. Registration is blocked.")).toBeVisible();

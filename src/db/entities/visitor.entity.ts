@@ -15,6 +15,7 @@ export interface VisitorEntity {
   vehicleNumber: string;
   vehicleNumberNormalised: string;
   additionalVehicleNumbers: string[];
+  otherVisitorNames: string[];
   vehicles?: VisitorVehicleEntity[];
   checkedIn: Date | null;
   checkedOut: Date | null;
@@ -97,6 +98,12 @@ export const VisitorSchema = new EntitySchema<VisitorEntity>({
     },
     additionalVehicleNumbers: {
       name: "additional_vehicle_numbers",
+      type: "text",
+      array: true,
+      default: () => "ARRAY[]::text[]",
+    },
+    otherVisitorNames: {
+      name: "other_visitor_names",
       type: "text",
       array: true,
       default: () => "ARRAY[]::text[]",

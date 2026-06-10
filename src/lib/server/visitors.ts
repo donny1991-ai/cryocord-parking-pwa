@@ -49,6 +49,7 @@ export interface CreateVisitorInput {
   passportNumber?: string | null;
   vehicleNumber: string;
   additionalVehicleNumbers?: string[];
+  otherVisitorNames?: string[];
   typeCode: VisitorTypeCode;
   purpose?: Purpose;
   visitDate?: string;
@@ -102,6 +103,7 @@ export interface VisitorDetailsUpdateInput {
   passportNumber?: string | null;
   vehicleNumber?: string;
   additionalVehicleNumbers?: string[];
+  otherVisitorNames?: string[];
   typeCode?: VisitorTypeCode;
   purpose?: Purpose;
   visitTime?: string | null;
@@ -122,6 +124,7 @@ export interface VisitorDto {
   passportNumber: string | null;
   vehicleNumber: string;
   additionalVehicleNumbers: string[];
+  otherVisitorNames: string[];
   vehicles: VisitorVehicleDto[];
   activeVehicleNumber: string | null;
   checkedIn: string | null;
@@ -203,6 +206,7 @@ function toDto(visitor: VisitorEntity): VisitorDto {
     passportNumber: visitor.passportNumber,
     vehicleNumber: visitor.vehicleNumber,
     additionalVehicleNumbers: visitor.additionalVehicleNumbers ?? [],
+    otherVisitorNames: visitor.otherVisitorNames ?? [],
     vehicles,
     activeVehicleNumber,
     checkedIn: visitor.checkedIn?.toISOString() ?? null,
@@ -406,6 +410,7 @@ function normaliseNullable(value: string | null | undefined) {
 }
 
 const MAX_ADDITIONAL_VEHICLE_NUMBERS = 20;
+const MAX_OTHER_VISITOR_NAMES = 998;
 
 function parseAdditionalVehicleNumbers(value: unknown, primaryPlate: string): string[] {
   const rawValues = Array.isArray(value) ? value : [];
@@ -433,6 +438,24 @@ function parseAdditionalVehicleNumbers(value: unknown, primaryPlate: string): st
   }
 
   return plates;
+}
+
+function parseOtherVisitorNames(value: unknown): string[] {
+  const rawValues = Array.isArray(value) ? value : [];
+  const names: string[] = [];
+
+  for (const raw of rawValues) {
+    const name = String(raw ?? "").trim().replace(/\s+/g, " ");
+    if (!name) continue;
+    if (name.length > 160) throw new Error("Other visitor names must be 160 characters or fewer.");
+    names.push(name);
+  }
+
+  if (names.length > MAX_OTHER_VISITOR_NAMES) {
+    throw new Error(`A registration can include up to ${MAX_OTHER_VISITOR_NAMES} other visitor names.`);
+  }
+
+  return names;
 }
 
 function registrationVehicleNumbers(visitor: Pick<VisitorEntity, "vehicleNumber" | "additionalVehicleNumbers">) {
@@ -672,6 +695,29 @@ async function assertNoActiveVehicleConflict(
   }
 }
 
+async function assertNoActiveRegistrationVehicleConflict(manager: EntityManager, vehicleNumber: string) {
+  const vehicleNumberNormalised = normalisePlate(vehicleNumber);
+  const activeRosterVehicle = await manager.findOne(VisitorVehicleSchema, {
+    where: {
+      vehicleNumberNormalised,
+      status: "checked_in",
+    },
+  });
+  if (activeRosterVehicle) {
+    throw new Error("Vehicle is already checked in under another active visit.");
+  }
+
+  const activeVisitor = await manager.findOne(VisitorSchema, {
+    where: {
+      vehicleNumberNormalised,
+      status: "checked_in",
+    },
+  });
+  if (activeVisitor) {
+    throw new Error("Vehicle is already checked in under another active visit.");
+  }
+}
+
 function assertVehicleCanTransition(vehicle: VisitorVehicleEntity, action: ScanAction, now: Date) {
   if (vehicle.status === "cancelled") {
     throw new Error("Visitor pass has been cancelled.");
@@ -781,6 +827,15 @@ async function applyVisitorDetailsUpdate(
     if (JSON.stringify(current) !== JSON.stringify(next)) {
       changes.additionalVehicleNumbers = { from: current.join(", ") || null, to: next.join(", ") || null };
       visitor.additionalVehicleNumbers = next;
+    }
+  }
+
+  if (details.otherVisitorNames !== undefined) {
+    const next = parseOtherVisitorNames(details.otherVisitorNames);
+    const current = visitor.otherVisitorNames ?? [];
+    if (JSON.stringify(current) !== JSON.stringify(next)) {
+      changes.otherVisitorNames = { from: current.join(", ") || null, to: next.join(", ") || null };
+      visitor.otherVisitorNames = next;
     }
   }
 
@@ -949,9 +1004,13 @@ export async function createVisitorPass(input: CreateVisitorInput): Promise<Issu
     const purpose = assertPurpose(input.purpose);
     const identity = normaliseIdentityDocument({ ...input, required: true });
     const additionalVehicleNumbers = parseAdditionalVehicleNumbers(input.additionalVehicleNumbers, input.vehicleNumber);
+    const otherVisitorNames = parseOtherVisitorNames(input.otherVisitorNames);
     await assertNoBlacklistedVehicles(manager, [input.vehicleNumber, ...additionalVehicleNumbers]);
     assertRemarksForOther(input.typeCode, purpose, remarks);
     const checkedInAt = input.checkInOnCreate ? new Date() : null;
+    if (checkedInAt) {
+      await assertNoActiveRegistrationVehicleConflict(manager, input.vehicleNumber);
+    }
     const created = manager.create(VisitorSchema, {
       name: input.name.trim(),
       phoneNumber: input.phoneNumber.trim(),
@@ -962,6 +1021,7 @@ export async function createVisitorPass(input: CreateVisitorInput): Promise<Issu
       vehicleNumber: input.vehicleNumber.trim().toUpperCase(),
       vehicleNumberNormalised: normalisePlate(input.vehicleNumber),
       additionalVehicleNumbers,
+      otherVisitorNames,
       checkedIn: checkedInAt,
       typeId: type.id,
       type,

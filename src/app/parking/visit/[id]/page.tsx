@@ -9,7 +9,6 @@ import {
   Hash,
   Phone,
   PhoneCall,
-  Send,
   ShieldCheck,
   UserRound,
   type LucideIcon,
@@ -19,6 +18,7 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { StatusPill, Chip } from "@/components/ui/badge";
 import { QrPass } from "@/components/parking/qr-pass";
+import { QrPassShareButton } from "@/components/parking/qr-pass-share-button";
 import { IdentityDocumentRow } from "@/components/parking/identity-document-row";
 import { VisitorCancelControl } from "@/components/parking/visitor-cancel-control";
 import { VisitorFlagControl } from "@/components/parking/visitor-flag-control";
@@ -28,6 +28,7 @@ import { requireParkingPageUser } from "@/lib/server/page-auth";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
 import { purposeLabel, visitTypeLabel } from "@/lib/labels";
 import { buildPassMessage, waLink } from "@/lib/whatsapp";
+import { canShareVisitPass, getVisitPassHeading } from "@/lib/visitor-pass";
 import type { Employee } from "@/lib/types";
 
 async function getRequestOrigin() {
@@ -50,19 +51,12 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
 
   const trail = await getVisitAuditTrail(visit.id);
   const live = visit.status === "inside" || visit.status === "overstayed" || visit.status === "flagged";
-  const passExpiresAt = visit.qrTokenExpiresAt ? new Date(visit.qrTokenExpiresAt) : null;
-  const showActivePass = Boolean(
-    visit.qrToken &&
-      passExpiresAt &&
-      passExpiresAt > new Date() &&
-      (visit.status === "pending" || live),
-  );
-  const passHeading =
-    visit.status === "pending"
-      ? "Scan at gate to check in"
-      : live
-        ? "Keep for exit scan"
-        : "Archived visitor pass";
+  const showActivePass = canShareVisitPass({
+    status: visit.status,
+    qrToken: visit.qrToken,
+    qrTokenExpiresAt: visit.qrTokenExpiresAt,
+  });
+  const passHeading = getVisitPassHeading(visit.status);
   const primaryTimeRow =
     (visit.status === "pending" || visit.status === "cancelled") && visit.visitDate
       ? {
@@ -75,25 +69,34 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
           label: visit.status === "pending" ? "Pass issued" : "Entry",
           value: `${formatDateTime(visit.entryTime)} · ${visit.entryGuardId}`,
         };
-  const canSendPendingPass = Boolean(showActivePass && visit.status === "pending" && visit.qrToken);
+  const canShareActivePass = Boolean(showActivePass && visit.qrToken);
   const canCancelPendingPass = visit.status === "pending";
+  const statusNote =
+    visit.status === "no_show"
+      ? "This registration is still stored as pending, but its arrival window has expired with no recorded arrival."
+      : visit.status === "partially_arrived"
+        ? "Some linked vehicles have activity, while at least one linked vehicle is still pending."
+        : null;
+  const additionalVisitorCount = Math.max(0, (visit.visitorCount ?? 1) - 1);
   const passUrl =
-    canSendPendingPass && origin && visit.qrToken
+    canShareActivePass && origin && visit.qrToken
       ? `${origin}/pass/${encodeURIComponent(visit.qrToken)}`
       : undefined;
+  const pendingPassValidUntil = visit.qrTokenExpiresAt ? formatDateTime(visit.qrTokenExpiresAt) : null;
+  const pendingPassMessage =
+    canShareActivePass && pendingPassValidUntil
+      ? buildPassMessage({
+          visitorName: visit.visitorName,
+          plate: visit.plate,
+          additionalPlates: visit.additionalPlates,
+          visitType: visit.visitType,
+          validUntil: pendingPassValidUntil,
+          passUrl,
+        })
+      : null;
   const sendViaWhatsappHref =
-    canSendPendingPass && visit.qrTokenExpiresAt
-      ? waLink(
-          visit.visitorContact,
-          buildPassMessage({
-            visitorName: visit.visitorName,
-            plate: visit.plate,
-            additionalPlates: visit.additionalPlates,
-            visitType: visit.visitType,
-            validUntil: formatDateTime(visit.qrTokenExpiresAt),
-            passUrl,
-          }),
-        )
+    pendingPassMessage
+      ? waLink(visit.visitorContact, pendingPassMessage)
       : null;
 
   return (
@@ -104,6 +107,12 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
         backHref="/parking/visits"
         action={<StatusPill status={visit.status} />}
       />
+
+      {statusNote && (
+        <div className="rounded-2xl border border-white/60 bg-white/50 px-3.5 py-3 text-xs font-semibold leading-relaxed text-ink-soft backdrop-blur-md">
+          {statusNote}
+        </div>
+      )}
 
       {/* Pass */}
       {showActivePass && visit.qrToken && visit.qrTokenExpiresAt && (
@@ -118,21 +127,21 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
         />
       )}
 
-      {canSendPendingPass && (
+      {canShareActivePass && visit.qrToken && pendingPassValidUntil && pendingPassMessage && (
         <div className="mx-auto w-full max-w-sm">
-          {sendViaWhatsappHref ? (
-            <a
-              href={sendViaWhatsappHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={cn(buttonVariants({ variant: "outline", size: "lg" }), "w-full")}
-            >
-              <Send className="h-4 w-4" /> Send to visitor via WhatsApp
-            </a>
-          ) : (
-            <Button variant="outline" size="lg" className="w-full" disabled>
-              <Send className="h-4 w-4" /> Send via WhatsApp
-            </Button>
+          <QrPassShareButton
+            token={visit.qrToken}
+            plate={visit.plate}
+            additionalPlates={visit.additionalPlates}
+            visitorName={visit.visitorName}
+            visitType={visit.visitType}
+            validUntil={pendingPassValidUntil}
+            heading={passHeading}
+            message={pendingPassMessage}
+            whatsappHref={sendViaWhatsappHref}
+          />
+          {!sendViaWhatsappHref && (
+            <p className="mt-2 text-center text-xs text-ink-faint">Add a valid contact number to open WhatsApp text.</p>
           )}
         </div>
       )}
@@ -140,7 +149,31 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
       {canCancelPendingPass && <VisitorCancelControl visitId={visit.id} />}
 
       <GlassCard padding="lg" className="space-y-3">
-        <DetailRow icon={UserRound} label="Visitor" value={visit.visitorName} />
+        <DetailRow icon={UserRound} label="Main visitor" value={visit.visitorName} />
+        {((visit.otherVisitorNames?.length ?? 0) > 0 || additionalVisitorCount > 0) && (
+          <div className="rounded-2xl border border-white/60 bg-white/45 px-3.5 py-3">
+            <div className="flex items-center gap-2">
+              <UserRound className="h-4 w-4 text-ink-faint" />
+              <p className="text-sm font-bold text-ink-soft">Additional visitors</p>
+            </div>
+            {(visit.otherVisitorNames?.length ?? 0) > 0 ? (
+              <ol className="mt-2 space-y-1.5">
+                {visit.otherVisitorNames!.map((name, index) => (
+                  <li key={`${name}-${index}`} className="flex items-center gap-2 rounded-xl bg-white/50 px-3 py-2">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand/10 text-[11px] font-bold text-brand">
+                      {index + 1}
+                    </span>
+                    <span className="text-sm font-semibold text-ink">{name}</span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="mt-2 rounded-xl bg-white/50 px-3 py-2 text-sm font-semibold text-ink-soft">
+                {additionalVisitorCount} additional visitor{additionalVisitorCount === 1 ? "" : "s"} recorded, but name details are not available for this registration.
+              </p>
+            )}
+          </div>
+        )}
         <DetailRow icon={Phone} label="Contact" value={visit.visitorContact} />
         <IdentityDocumentRow identityType={visit.identityType} nric={visit.nric} passportNumber={visit.passportNumber} />
         {visit.organisation && (
@@ -180,30 +213,34 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
             <p className="text-xs text-ink-faint">Each plate checks in and out independently under this registration.</p>
           </div>
           <div className="space-y-2">
-            {visit.vehicles!.map((vehicle) => (
-              <div
-                key={vehicle.id}
-                className="flex items-center justify-between rounded-2xl border border-white/60 bg-white/45 px-3 py-2"
-              >
-                <div>
-                  <p className="font-bold tracking-wide text-ink">{vehicle.plate}</p>
-                  <p className="text-xs text-ink-faint">
-                    {vehicle.isPrimary ? "Primary" : "Linked"} vehicle
-                    {vehicle.checkedIn ? ` · In ${formatDateTime(vehicle.checkedIn)}` : ""}
-                    {vehicle.checkedOut ? ` · Out ${formatDateTime(vehicle.checkedOut)}` : ""}
-                  </p>
-                </div>
-                <Chip
-                  className={
-                    vehicle.status === "checked_in"
-                      ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700"
-                      : undefined
-                  }
+            {visit.vehicles!.map((vehicle) => {
+              const displayStatus = vehicle.displayStatus ?? (
+                vehicle.status === "checked_in"
+                  ? "inside"
+                  : vehicle.status === "checked_out"
+                    ? "exited"
+                    : vehicle.status === "cancelled" || vehicle.status === "rejected"
+                      ? "cancelled"
+                      : "pending"
+              );
+              return (
+                <div
+                  key={vehicle.id}
+                  className="flex items-center justify-between rounded-2xl border border-white/60 bg-white/45 px-3 py-2"
                 >
-                  {vehicle.status === "checked_in" ? "Inside" : vehicle.status.replace("_", " ")}
-                </Chip>
-              </div>
-            ))}
+                  <div>
+                    <p className="font-bold tracking-wide text-ink">{vehicle.plate}</p>
+                    <p className="text-xs text-ink-faint">
+                      {vehicle.isPrimary ? "Primary" : "Linked"} vehicle
+                      {vehicle.checkedIn ? ` · In ${formatDateTime(vehicle.checkedIn)}` : ""}
+                      {vehicle.checkedOut ? ` · Out ${formatDateTime(vehicle.checkedOut)}` : ""}
+                      {displayStatus === "no_show" ? " · Arrival window expired" : ""}
+                    </p>
+                  </div>
+                  <StatusPill status={displayStatus} />
+                </div>
+              );
+            })}
           </div>
         </GlassCard>
       )}
