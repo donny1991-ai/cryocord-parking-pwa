@@ -174,6 +174,10 @@
     );
     background-size: 200% 100%;
   }
+
+  .wall-qr-print-sheet {
+    display: none;
+  }
 }
 
 @layer utilities {
@@ -218,5 +222,149 @@
   }
   .pt-safe {
     padding-top: calc(env(safe-area-inset-top) + 0.5rem);
+  }
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  html,
+  body {
+    width: 210mm;
+    height: 297mm;
+    margin: 0 !important;
+    overflow: hidden !important;
+    background: #ffffff !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .wall-qr-print-sheet,
+  .wall-qr-print-sheet * {
+    visibility: visible !important;
+  }
+
+  .wall-qr-print-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 210mm;
+    height: 297mm;
+    box-sizing: border-box;
+    overflow: hidden;
+    padding: 10mm;
+    background: #ffffff;
+    color: #1a1a1a;
+    break-after: avoid;
+    break-before: avoid;
+    break-inside: avoid;
+    page-break-after: avoid;
+    page-break-before: avoid;
+    page-break-inside: avoid;
+  }
+
+  .wall-qr-print-poster {
+    box-sizing: border-box;
+    display: flex;
+    height: 266mm;
+    width: 176mm;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1.2mm solid #c8102e;
+    border-radius: 7mm;
+    background:
+      linear-gradient(180deg, rgba(200, 16, 46, 0.06), rgba(255, 255, 255, 0) 34%),
+      #ffffff;
+  }
+
+  .wall-qr-print-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10mm;
+    padding: 8mm 12mm;
+    border-bottom: 0.7mm solid rgba(200, 16, 46, 0.22);
+  }
+
+  .wall-qr-print-header > span {
+    color: #c8102e;
+    font-size: 12pt;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+
+  .wall-qr-print-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 9mm 15mm 8mm;
+    text-align: center;
+  }
+
+  .wall-qr-print-eyebrow {
+    margin: 0;
+    color: #c8102e;
+    font-size: 12pt;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+
+  .wall-qr-print-body h1 {
+    margin: 4mm 0 0;
+    color: #1a1a1a;
+    font-size: 30pt;
+    font-weight: 800;
+    letter-spacing: 0;
+    line-height: 1.05;
+  }
+
+  .wall-qr-print-copy {
+    max-width: 132mm;
+    margin: 4mm 0 7mm;
+    color: #4f4f4f;
+    font-size: 13pt;
+    font-weight: 500;
+    letter-spacing: 0;
+    line-height: 1.45;
+  }
+
+  .wall-qr-print-code {
+    width: fit-content;
+    padding: 6mm;
+    border: 0.45mm solid rgba(26, 26, 26, 0.14);
+    border-radius: 7mm;
+    background: #ffffff;
+  }
+
+  .wall-qr-print-url {
+    max-width: 136mm;
+    margin: 6mm 0 0;
+    overflow-wrap: anywhere;
+    color: #555555;
+    font-size: 11pt;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+
+  .wall-qr-print-footer {
+    padding: 5mm 12mm 6mm;
+    border-top: 0.5mm solid rgba(26, 26, 26, 0.12);
+    color: #666666;
+    font-size: 9.5pt;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-align: center;
   }
 }

@@ -13,6 +13,7 @@ const LIMITS = {
   passportNumber: 20,
   vehicleNumber: 32,
   additionalVehicleNumber: 32,
+  otherVisitorName: 160,
   remarks: 2000,
   hostStaffId: 80,
   hostDepartment: 120,
@@ -27,6 +28,12 @@ function parseAdditionalVehicleNumbers(value: unknown) {
   if (value === undefined || value === null) return undefined;
   if (!Array.isArray(value)) return [];
   return value.map((plate) => String(plate ?? "").trim()).filter(Boolean);
+}
+
+function parseOtherVisitorNames(value: unknown) {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) return [];
+  return value.map((name) => String(name ?? "").trim()).filter(Boolean);
 }
 
 function parseVisitTime(value: unknown) {
@@ -47,6 +54,28 @@ function parseVisitorCount(value: unknown) {
   return count;
 }
 
+function logUnexpectedCreateVisitorError(error: unknown) {
+  if (error instanceof Error) {
+    console.error("[visitors:create] unexpected failure", {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    });
+    return;
+  }
+
+  console.error("[visitors:create] unexpected failure", { error });
+}
+
+function isActiveVehicleConflictMessage(message: string) {
+  return (
+    message === "Vehicle is already checked in under another active visit." ||
+    message === "Vehicle has already checked in." ||
+    message.includes("uq_visitors_one_active_vehicle") ||
+    message.includes("uq_visitor_vehicles_one_active_plate")
+  );
+}
+
 export async function POST(request: NextRequest) {
   try {
     const actor = await requireParkingUser(request);
@@ -59,6 +88,7 @@ export async function POST(request: NextRequest) {
     const identityType = body.identityType === "passport" || body.identityType === "nric" ? body.identityType : undefined;
     const vehicleNumber = String(body.vehicleNumber ?? "").trim();
     const additionalVehicleNumbers = parseAdditionalVehicleNumbers(body.additionalVehicleNumbers);
+    const otherVisitorNames = parseOtherVisitorNames(body.otherVisitorNames);
     const typeCode = assertVisitorTypeCode(body.typeCode);
     const purpose = assertPurpose(body.purpose);
     const visitDate = body.visitDate ? assertVisitDate(body.visitDate) : undefined;
@@ -76,6 +106,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!hostStaffId) {
+      return NextResponse.json({ error: "Host is required." }, { status: 400 });
+    }
+
     if (
       tooLong(name, LIMITS.name) ||
       tooLong(phoneNumber, LIMITS.phoneNumber) ||
@@ -84,6 +118,7 @@ export async function POST(request: NextRequest) {
       tooLong(passportNumber, LIMITS.passportNumber) ||
       tooLong(vehicleNumber, LIMITS.vehicleNumber) ||
       (additionalVehicleNumbers ?? []).some((plate) => tooLong(plate, LIMITS.additionalVehicleNumber)) ||
+      (otherVisitorNames ?? []).some((visitorName) => tooLong(visitorName, LIMITS.otherVisitorName)) ||
       tooLong(remarks, LIMITS.remarks) ||
       tooLong(hostStaffId, LIMITS.hostStaffId) ||
       tooLong(hostDepartment, LIMITS.hostDepartment) ||
@@ -101,6 +136,7 @@ export async function POST(request: NextRequest) {
       passportNumber: passportNumber || undefined,
       vehicleNumber,
       additionalVehicleNumbers,
+      otherVisitorNames,
       typeCode,
       purpose,
       visitDate,
@@ -131,11 +167,22 @@ export async function POST(request: NextRequest) {
       message.includes("NRIC") ||
       message.includes("Passport") ||
       message.includes("Identity document") ||
+      message.includes("blacklisted") ||
+      message.includes("Additional vehicle numbers") ||
+      message.includes("additional vehicle numbers") ||
+      message.includes("Other visitor names") ||
+      message.includes("other visitor names") ||
       message.startsWith("Visit date") ||
       message.startsWith("Visit time") ||
       message.includes("Number of visitors")
     ) {
       return NextResponse.json({ error: message }, { status: 400 });
+    }
+    if (isActiveVehicleConflictMessage(message)) {
+      return NextResponse.json(
+        { error: "Vehicle is already checked in under another active visit." },
+        { status: 409 },
+      );
     }
     if (missingDb) {
       return NextResponse.json({ error: "Visitor database is not configured." }, { status: 503 });
@@ -143,6 +190,7 @@ export async function POST(request: NextRequest) {
     if (message.includes("Visitor type reference data is missing")) {
       return NextResponse.json({ error: message }, { status: 503 });
     }
+    logUnexpectedCreateVisitorError(error);
     return NextResponse.json({ error: "Unable to create visitor pass." }, { status: 500 });
   }
 }

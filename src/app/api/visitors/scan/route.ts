@@ -22,6 +22,7 @@ const LIMITS = {
   passportNumber: 20,
   vehicleNumber: 32,
   additionalVehicleNumber: 32,
+  otherVisitorName: 160,
   remarks: 2000,
   hostStaffId: 80,
   hostDepartment: 120,
@@ -101,6 +102,19 @@ function parseVisitorDetails(value: unknown): VisitorDetailsUpdateInput | undefi
         .map((plate) => String(plate ?? "").trim())
         .filter(Boolean);
       if (details.additionalVehicleNumbers.some((plate) => tooLong(plate, LIMITS.additionalVehicleNumber))) {
+        throw new Error("Visitor payload exceeds allowed field length.");
+      }
+    }
+  }
+
+  if ("otherVisitorNames" in body) {
+    if (!Array.isArray(body.otherVisitorNames)) {
+      details.otherVisitorNames = [];
+    } else {
+      details.otherVisitorNames = body.otherVisitorNames
+        .map((name) => String(name ?? "").trim())
+        .filter(Boolean);
+      if (details.otherVisitorNames.some((name) => tooLong(name, LIMITS.otherVisitorName))) {
         throw new Error("Visitor payload exceeds allowed field length.");
       }
     }

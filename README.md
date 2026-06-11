@@ -156,6 +156,10 @@ DATABASE_SSL_REJECT_UNAUTHORIZED=true
 PARKING_QR_KEY_ID=<current-key-id>
 PARKING_QR_SIGNING_KEY=<secret-from-key-vault>
 SUPABASE_JWT_SECRET=<supabase-jwt-secret>
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<server-only-service-role-key>
+SUPABASE_PUBLIC_URL=https://<project-ref>.supabase.co
+PARKING_ENTRY_SNAPSHOT_BUCKET=parking-entry-snapshots
 NEXT_PUBLIC_APP_URL=https://<your-container-app-hostname>
 SMTP_HOST=mail.cryocord.com.my
 SMTP_PORT=465
@@ -163,6 +167,15 @@ SMTP_USER=aiprojects@cryocord.com.my
 SMTP_PASS=<smtp-password>
 SMTP_TLS_REJECT_UNAUTHORIZED=true
 ```
+
+Visitor entry snapshots use a private Supabase Storage bucket. The app stores only
+the bucket/path metadata in `parking.visitors` and serves short-lived signed URLs
+to authenticated parking users.
+
+When the app runs in Docker against local Supabase, `SUPABASE_URL` may need to be
+`http://host.docker.internal:54321` for server-side uploads. In that case set
+`SUPABASE_PUBLIC_URL=http://localhost:54321` so browser previews can load the
+signed image URL.
 
 Run `npm run db:migration:run` from CI/CD or a one-off migration container before
 promoting a new revision. Avoid running migrations automatically in every app
@@ -204,13 +217,14 @@ CONFIRM_PARKING_MIGRATE_FRESH=true npm run db:migrate:fresh:seed
 CONFIRM_PARKING_MIGRATE_FRESH=true npm run db:migrate:fresh:demo
 ```
 
-This preserves Supabase `auth.users`, drops only the `parking` schema and TypeORM
-migration history, then reruns migrations. In production or against a remote database,
-set `CONFIRM_PARKING_MIGRATE_FRESH=true` to acknowledge the destructive parking-schema
-reset. The `:demo` variant also seeds an admin, a guard, and representative live,
-overstay, flagged, and exited visitor records for walkthroughs. Seeders reuse an
-existing `auth.users` row by email and create one only when the email does not already
-exist.
+This preserves Supabase `auth.users`, removes parking entry snapshot objects under
+the configured `PARKING_ENTRY_SNAPSHOT_BUCKET` `visitors/` prefix, drops only the
+`parking` schema and TypeORM migration history, then reruns migrations. In production
+or against a remote database, set `CONFIRM_PARKING_MIGRATE_FRESH=true` to acknowledge
+the destructive parking-schema and parking-storage reset. The `:demo` variant also
+seeds an admin, a guard, and representative live, overstay, flagged, and exited visitor
+records for walkthroughs. Seeders reuse an existing `auth.users` row by email and
+create one only when the email does not already exist.
 
 ## Database
 

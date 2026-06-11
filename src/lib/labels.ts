@@ -4,6 +4,7 @@ import type { Purpose, Status, VisitType, OwnerType } from "./enums";
 const OVERRIDES: Record<string, string> = {
   vip: "VIP",
   vvip: "VVIP",
+  no_show: "No-show",
 };
 
 export function labelize(value: string): string {
@@ -44,5 +45,13 @@ export const STATUS_STYLE: Record<Status, { dot: string; pill: string }> = {
   cancelled: {
     dot: "bg-ink-faint",
     pill: "bg-ink-faint/10 text-ink-soft border-ink-faint/25",
+  },
+  no_show: {
+    dot: "bg-zinc-500",
+    pill: "bg-zinc-500/10 text-zinc-700 border-zinc-500/25",
+  },
+  partially_arrived: {
+    dot: "bg-violet-500",
+    pill: "bg-violet-500/12 text-violet-700 border-violet-500/25",
   },
 };

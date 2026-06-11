@@ -24,9 +24,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireParkingUser(request, ["admin"]);
+    const actor = await requireParkingUser(request, ["admin"]);
     const { id } = await params;
-    const result = await clearVisitorFlag(id);
+    const result = await clearVisitorFlag(id, actor);
     revalidateVisitorPages(id);
     return NextResponse.json({ visitor: result });
   } catch (error) {

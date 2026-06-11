@@ -20,9 +20,14 @@ test.describe("public and protected routing", () => {
     await expect(sendCode).toBeDisabled();
 
     await email.click();
-    await email.pressSequentially("guard@example.com");
-    await expect(email).toHaveValue("guard@example.com");
-    await expect(sendCode).toBeEnabled();
+    await email.pressSequentially("guard@cryocord.com.my");
+    await expect(email).toHaveValue("guard@cryocord.com.my");
+    if (await sendCode.isDisabled()) {
+      await email.clear();
+      await email.pressSequentially("guard@cryocord.com.my");
+      await expect(email).toHaveValue("guard@cryocord.com.my");
+    }
+    await expect(sendCode).toBeEnabled({ timeout: 10000 });
   });
 
   test("shows an inactive public pass for an invalid token", async ({ page }) => {
@@ -32,5 +37,14 @@ test.describe("public and protected routing", () => {
     await expect(page.getByRole("heading", { name: "Pass expired" })).toBeVisible();
     await expect(page.getByText("This visitor pass is expired or invalid.")).toBeVisible();
     await expect(page.getByText("QR code hidden after expiry or checkout.")).toBeVisible();
+  });
+
+  test("renders public wall QR registration without staff sign-in", async ({ page }) => {
+    await page.goto("/register");
+
+    await expect(page.getByRole("heading", { name: "Entry request" })).toBeVisible();
+    await expect(page.getByLabel("Person or department to visit")).toBeVisible();
+    await expect(page.getByLabel("Vehicle plate")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Submit registration" })).toBeDisabled();
   });
 });

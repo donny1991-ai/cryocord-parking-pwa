@@ -1,5 +1,5 @@
 import "server-only";
-import { VisitorScanEventSchema, VisitorSchema, VisitorTypeSchema, VisitorVehicleSchema } from "@/db/entities";
+import { VehicleSchema, VisitorScanEventSchema, VisitorSchema, VisitorTypeSchema, VisitorVehicleSchema } from "@/db/entities";
 import type { VisitorEntity, VisitorStatus, VisitorVehicleEntity, VisitorVehicleStatus } from "@/db/entities";
 import { getParkingDataSource } from "@/db/client";
 import { PURPOSES, type Purpose } from "@/lib/enums";
@@ -16,7 +16,7 @@ import {
 } from "@/lib/qr";
 import { normalisePlate } from "@/lib/utils";
 import { assertScanAction, type ScanAction } from "./visitor-state";
-import type { EntityManager } from "typeorm";
+import { In, type EntityManager } from "typeorm";
 import { decodeProtectedHeader } from "jose";
 
 export type VisitorTypeCode =
@@ -49,6 +49,7 @@ export interface CreateVisitorInput {
   passportNumber?: string | null;
   vehicleNumber: string;
   additionalVehicleNumbers?: string[];
+  otherVisitorNames?: string[];
   typeCode: VisitorTypeCode;
   purpose?: Purpose;
   visitDate?: string;
@@ -102,6 +103,7 @@ export interface VisitorDetailsUpdateInput {
   passportNumber?: string | null;
   vehicleNumber?: string;
   additionalVehicleNumbers?: string[];
+  otherVisitorNames?: string[];
   typeCode?: VisitorTypeCode;
   purpose?: Purpose;
   visitTime?: string | null;
@@ -122,6 +124,7 @@ export interface VisitorDto {
   passportNumber: string | null;
   vehicleNumber: string;
   additionalVehicleNumbers: string[];
+  otherVisitorNames: string[];
   vehicles: VisitorVehicleDto[];
   activeVehicleNumber: string | null;
   checkedIn: string | null;
@@ -151,6 +154,8 @@ export interface VisitorVehicleDto {
   checkedOut: string | null;
   checkedInBy: string | null;
   checkedOutBy: string | null;
+  blacklisted?: boolean;
+  blacklistReason?: string | null;
 }
 
 type ResolvedPassClaims = PassClaims & {
@@ -201,6 +206,7 @@ function toDto(visitor: VisitorEntity): VisitorDto {
     passportNumber: visitor.passportNumber,
     vehicleNumber: visitor.vehicleNumber,
     additionalVehicleNumbers: visitor.additionalVehicleNumbers ?? [],
+    otherVisitorNames: visitor.otherVisitorNames ?? [],
     vehicles,
     activeVehicleNumber,
     checkedIn: visitor.checkedIn?.toISOString() ?? null,
@@ -404,6 +410,7 @@ function normaliseNullable(value: string | null | undefined) {
 }
 
 const MAX_ADDITIONAL_VEHICLE_NUMBERS = 20;
+const MAX_OTHER_VISITOR_NAMES = 998;
 
 function parseAdditionalVehicleNumbers(value: unknown, primaryPlate: string): string[] {
   const rawValues = Array.isArray(value) ? value : [];
@@ -433,8 +440,84 @@ function parseAdditionalVehicleNumbers(value: unknown, primaryPlate: string): st
   return plates;
 }
 
+function parseOtherVisitorNames(value: unknown): string[] {
+  const rawValues = Array.isArray(value) ? value : [];
+  const names: string[] = [];
+
+  for (const raw of rawValues) {
+    const name = String(raw ?? "").trim().replace(/\s+/g, " ");
+    if (!name) continue;
+    if (name.length > 160) throw new Error("Other visitor names must be 160 characters or fewer.");
+    names.push(name);
+  }
+
+  if (names.length > MAX_OTHER_VISITOR_NAMES) {
+    throw new Error(`A registration can include up to ${MAX_OTHER_VISITOR_NAMES} other visitor names.`);
+  }
+
+  return names;
+}
+
 function registrationVehicleNumbers(visitor: Pick<VisitorEntity, "vehicleNumber" | "additionalVehicleNumbers">) {
   return [visitor.vehicleNumber, ...(visitor.additionalVehicleNumbers ?? [])];
+}
+
+function blacklistedVehicleMessage(vehicleNumber: string, reason?: string | null) {
+  const suffix = reason?.trim() ? ` Reason: ${reason.trim()}` : "";
+  return `Vehicle ${vehicleNumber} is blacklisted. Registration is blocked. Contact the duty manager.${suffix}`;
+}
+
+async function findBlacklistedVehicles(manager: EntityManager, vehicleNumbers: string[]) {
+  const normalised = Array.from(new Set(vehicleNumbers.map(normalisePlate).filter(Boolean)));
+  if (normalised.length === 0) return [];
+
+  return manager.find(VehicleSchema, {
+    where: {
+      plateNormalised: In(normalised),
+      blacklisted: true,
+    },
+  });
+}
+
+async function assertNoBlacklistedVehicles(manager: EntityManager, vehicleNumbers: string[]) {
+  const blacklisted = await findBlacklistedVehicles(manager, vehicleNumbers);
+  if (blacklisted.length > 0) {
+    throw new Error(blacklistedVehicleMessage(blacklisted[0].plate, blacklisted[0].notes));
+  }
+}
+
+async function findBlacklistedVehicleByNormalised(manager: EntityManager, vehicleNumberNormalised: string) {
+  return manager.findOne(VehicleSchema, {
+    where: {
+      plateNormalised: vehicleNumberNormalised,
+      blacklisted: true,
+    },
+  });
+}
+
+async function annotateVehicleBlacklistState(manager: EntityManager, visitor: VisitorDto) {
+  const vehicles = visitor.vehicles.length > 0
+    ? visitor.vehicles
+    : [{ vehicleNumber: visitor.vehicleNumber } as VisitorVehicleDto];
+  const blacklisted = await findBlacklistedVehicles(
+    manager,
+    vehicles.map((vehicle) => vehicle.vehicleNumber),
+  );
+  if (blacklisted.length === 0) return visitor;
+
+  const byPlate = new Map(blacklisted.map((vehicle) => [vehicle.plateNormalised, vehicle]));
+  return {
+    ...visitor,
+    vehicles: visitor.vehicles.map((vehicle) => {
+      const matched = byPlate.get(normalisePlate(vehicle.vehicleNumber));
+      if (!matched) return vehicle;
+      return {
+        ...vehicle,
+        blacklisted: true,
+        blacklistReason: matched.notes,
+      };
+    }),
+  };
 }
 
 async function getVisitorVehicles(manager: EntityManager, visitorId: string) {
@@ -612,6 +695,29 @@ async function assertNoActiveVehicleConflict(
   }
 }
 
+async function assertNoActiveRegistrationVehicleConflict(manager: EntityManager, vehicleNumber: string) {
+  const vehicleNumberNormalised = normalisePlate(vehicleNumber);
+  const activeRosterVehicle = await manager.findOne(VisitorVehicleSchema, {
+    where: {
+      vehicleNumberNormalised,
+      status: "checked_in",
+    },
+  });
+  if (activeRosterVehicle) {
+    throw new Error("Vehicle is already checked in under another active visit.");
+  }
+
+  const activeVisitor = await manager.findOne(VisitorSchema, {
+    where: {
+      vehicleNumberNormalised,
+      status: "checked_in",
+    },
+  });
+  if (activeVisitor) {
+    throw new Error("Vehicle is already checked in under another active visit.");
+  }
+}
+
 function assertVehicleCanTransition(vehicle: VisitorVehicleEntity, action: ScanAction, now: Date) {
   if (vehicle.status === "cancelled") {
     throw new Error("Visitor pass has been cancelled.");
@@ -724,10 +830,20 @@ async function applyVisitorDetailsUpdate(
     }
   }
 
+  if (details.otherVisitorNames !== undefined) {
+    const next = parseOtherVisitorNames(details.otherVisitorNames);
+    const current = visitor.otherVisitorNames ?? [];
+    if (JSON.stringify(current) !== JSON.stringify(next)) {
+      changes.otherVisitorNames = { from: current.join(", ") || null, to: next.join(", ") || null };
+      visitor.otherVisitorNames = next;
+    }
+  }
+
   if (details.typeCode !== undefined) {
     const typeCode = assertVisitorTypeCode(details.typeCode);
     const type = await getVisitorTypeByCodeOrThrow(manager, typeCode);
-    setChangedValue(changes, "typeId", visitor.typeId, type.id, () => {
+    const currentType = visitor.type ?? await manager.findOneBy(VisitorTypeSchema, { id: visitor.typeId });
+    setChangedValue(changes, "typeCode", currentType?.code ?? String(visitor.typeId), type.code, () => {
       visitor.typeId = type.id;
       visitor.type = type;
     });
@@ -887,8 +1003,14 @@ export async function createVisitorPass(input: CreateVisitorInput): Promise<Issu
     const remarks = input.remarks?.trim() || null;
     const purpose = assertPurpose(input.purpose);
     const identity = normaliseIdentityDocument({ ...input, required: true });
+    const additionalVehicleNumbers = parseAdditionalVehicleNumbers(input.additionalVehicleNumbers, input.vehicleNumber);
+    const otherVisitorNames = parseOtherVisitorNames(input.otherVisitorNames);
+    await assertNoBlacklistedVehicles(manager, [input.vehicleNumber, ...additionalVehicleNumbers]);
     assertRemarksForOther(input.typeCode, purpose, remarks);
     const checkedInAt = input.checkInOnCreate ? new Date() : null;
+    if (checkedInAt) {
+      await assertNoActiveRegistrationVehicleConflict(manager, input.vehicleNumber);
+    }
     const created = manager.create(VisitorSchema, {
       name: input.name.trim(),
       phoneNumber: input.phoneNumber.trim(),
@@ -898,7 +1020,8 @@ export async function createVisitorPass(input: CreateVisitorInput): Promise<Issu
       passportNumber: identity.passportNumber,
       vehicleNumber: input.vehicleNumber.trim().toUpperCase(),
       vehicleNumberNormalised: normalisePlate(input.vehicleNumber),
-      additionalVehicleNumbers: parseAdditionalVehicleNumbers(input.additionalVehicleNumbers, input.vehicleNumber),
+      additionalVehicleNumbers,
+      otherVisitorNames,
       checkedIn: checkedInAt,
       typeId: type.id,
       type,
@@ -1037,12 +1160,14 @@ export async function getPublicVisitorPass(token: string): Promise<PublicVisitor
 
 type VisitorPassRejection = {
   visitorId?: string;
+  vehicleNumber?: string;
   reason:
     | "visitor_not_found"
     | "token_mismatch"
     | "token_expired"
     | "pass_cancelled"
     | "no_vehicle_checked_in"
+    | "blacklisted_vehicle"
     | "already_checked_in"
     | "already_checked_out";
   message: string;
@@ -1150,7 +1275,7 @@ export async function reviewVisitorPass(input: ReviewVisitorPassInput): Promise<
 
     const refreshed = await loadVisitorWithRelations(manager, visitor.id);
 
-    return { visitor: toDto(refreshed) };
+    return { visitor: await annotateVehicleBlacklistState(manager, toDto(refreshed)) };
   });
 
   if ("rejected" in result) {
@@ -1390,6 +1515,17 @@ export async function scanVisitorPass(input: ScanVisitorInput): Promise<VisitorD
       };
     }
     if (transition === "check_in") {
+      const blacklistedVehicle = await findBlacklistedVehicleByNormalised(manager, vehicle.vehicleNumberNormalised);
+      if (blacklistedVehicle) {
+        return {
+          rejected: {
+            visitorId: visitor.id,
+            vehicleNumber: blacklistedVehicle.plate,
+            reason: "blacklisted_vehicle",
+            message: blacklistedVehicleMessage(blacklistedVehicle.plate, blacklistedVehicle.notes),
+          },
+        };
+      }
       await assertNoActiveVehicleConflict(manager, vehicle.vehicleNumberNormalised, vehicle.id);
       vehicle.status = "checked_in";
       vehicle.checkedIn = now;
@@ -1416,7 +1552,12 @@ export async function scanVisitorPass(input: ScanVisitorInput): Promise<VisitorD
   });
 
   if ("rejected" in result) {
-    await recordRejectedScan(ds, result.rejected, input.guardId);
+    await recordRejectedScan(
+      ds,
+      result.rejected,
+      input.guardId,
+      result.rejected.vehicleNumber ? { vehicleNumber: result.rejected.vehicleNumber } : {},
+    );
     throw new Error(result.rejected.message);
   }
 

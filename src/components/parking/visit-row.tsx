@@ -11,7 +11,8 @@ export function VisitRow({ visit, now }: { visit: Visit; now?: Date }) {
   const s = STATUS_STYLE[visit.status];
   const additionalCount = visit.additionalPlates?.length ?? 0;
   const insideCount = visit.vehicles?.filter((vehicle) => vehicle.status === "checked_in").length ?? 0;
-  const pendingCount = visit.vehicles?.filter((vehicle) => vehicle.status === "pending").length ?? 0;
+  const pendingCount = visit.vehicles?.filter((vehicle) => vehicle.displayStatus === "pending" || (!vehicle.displayStatus && vehicle.status === "pending")).length ?? 0;
+  const noShowCount = visit.vehicles?.filter((vehicle) => vehicle.displayStatus === "no_show").length ?? 0;
   const exitedCount = visit.vehicles?.filter((vehicle) => vehicle.status === "checked_out").length ?? 0;
   const linkedRegistration = (visit.registrationVehicleCount ?? 0) > 1;
   const roleLabel = visit.registrationVehicleRole === "primary" ? "Primary" : "Linked";
@@ -46,10 +47,10 @@ export function VisitRow({ visit, now }: { visit: Visit; now?: Date }) {
               <span>+{additionalCount} vehicle{additionalCount === 1 ? "" : "s"}</span>
             ) : null}
             {!linkedRegistration && (visit.vehicles?.length ?? 0) > 1 && (
-              <span>{insideCount} in · {pendingCount} due · {exitedCount} out</span>
+              <span>{insideCount} in · {pendingCount} due · {noShowCount} no-show · {exitedCount} out</span>
             )}
             {linkedRegistration && (
-              <span>{insideCount} in · {pendingCount} due · {exitedCount} out</span>
+              <span>{insideCount} in · {pendingCount} due · {noShowCount} no-show · {exitedCount} out</span>
             )}
             <span>{purposeLabel(visit.purpose)}</span>
             <span className="truncate">· {visit.visitorName}</span>

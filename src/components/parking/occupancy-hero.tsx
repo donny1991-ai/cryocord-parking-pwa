@@ -33,7 +33,9 @@ export function OccupancyHero({
   const { line, area, last } = sparkPaths(series);
 
   return (
-    <div className="glass-red rounded-4xl p-6">
+    <div className="relative overflow-hidden rounded-4xl border border-amber-500/35 bg-[linear-gradient(145deg,#f7c842_0%,#d69000_62%,#a86600_100%)] p-6 text-white shadow-[0_22px_54px_-22px_rgba(180,105,0,0.65)]">
+      <div className="absolute inset-x-0 bottom-0 h-[40%] bg-[linear-gradient(180deg,rgba(113,66,0,0.24),rgba(255,202,64,0.2))]" />
+
       <div className="relative z-10">
         <div className="flex items-center justify-between">
           <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-white/85">
@@ -43,7 +45,7 @@ export function OccupancyHero({
             </span>
             Currently inside
           </span>
-          <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/25">
+          <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/12 ring-1 ring-white/35">
             <Car className="h-5 w-5 text-white" />
           </span>
         </div>
@@ -58,8 +60,8 @@ export function OccupancyHero({
         {/* Breakdown */}
         <div className="mt-4 flex flex-wrap gap-2">
           <Breakdown label="Normal" value={normal} dot="bg-emerald-300" />
-          <Breakdown label="Overstayed" value={over} dot="bg-amber-300" />
-          <Breakdown label="Flagged" value={flagged} dot="bg-white" />
+          <Breakdown label="Overstayed" value={over} dot="bg-white" />
+          <Breakdown label="Flagged" value={flagged} dot="bg-brand" />
         </div>
 
         {/* Sparkline */}
@@ -83,7 +85,7 @@ export function OccupancyHero({
             />
             {last && <circle cx={last[0]} cy={last[1]} r="2.4" fill="#fff" vectorEffect="non-scaling-stroke" />}
           </svg>
-          <p className="mt-1 text-[11px] text-white/60">Occupancy · today 08:00–14:00</p>
+          <p className="mt-1 text-[11px] font-medium text-white/75">Occupancy · today 08:00–14:00</p>
         </div>
       </div>
     </div>
@@ -92,7 +94,7 @@ export function OccupancyHero({
 
 function Breakdown({ label, value, dot }: { label: string; value: number; dot: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/12 px-2.5 py-1 text-xs font-semibold ring-1 ring-white/15">
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/16 px-2.5 py-1 text-xs font-semibold ring-1 ring-white/30 backdrop-blur">
       <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
       {value} {label}
     </span>

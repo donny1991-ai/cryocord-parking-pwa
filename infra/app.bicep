@@ -35,6 +35,16 @@ param parkingQrSigningKey string = ''
 @description('Optional Supabase JWT secret used to verify authenticated requests. Leave empty to add it manually on the Container App.')
 param supabaseJwtSecret string = ''
 
+@description('Supabase project URL used for private Storage access. Leave empty to disable entry snapshot upload.')
+param supabaseUrl string = ''
+
+@secure()
+@description('Optional Supabase service role key used by the server to upload private entry snapshots. Leave empty to add it manually on the Container App.')
+param supabaseServiceRoleKey string = ''
+
+@description('Private Supabase Storage bucket for visitor entry snapshots.')
+param parkingEntrySnapshotBucket string = 'parking-entry-snapshots'
+
 @secure()
 @description('Optional dedicated OTP signing secret. Leave empty to use SUPABASE_JWT_SECRET fallback.')
 param authOtpSecret string = ''
@@ -163,6 +173,11 @@ var secretDefinitions = concat([
     name: 'supabase-jwt-secret'
     value: supabaseJwtSecret
   }
+], empty(supabaseServiceRoleKey) ? [] : [
+  {
+    name: 'supabase-service-role-key'
+    value: supabaseServiceRoleKey
+  }
 ], empty(smtpPass) ? [] : [
   {
     name: 'smtp-pass'
@@ -221,6 +236,21 @@ var appEnv = concat([
   {
     name: 'SUPABASE_JWT_SECRET'
     secretRef: 'supabase-jwt-secret'
+  }
+], empty(supabaseUrl) ? [] : [
+  {
+    name: 'SUPABASE_URL'
+    value: supabaseUrl
+  }
+], empty(supabaseServiceRoleKey) ? [] : [
+  {
+    name: 'SUPABASE_SERVICE_ROLE_KEY'
+    secretRef: 'supabase-service-role-key'
+  }
+], [
+  {
+    name: 'PARKING_ENTRY_SNAPSHOT_BUCKET'
+    value: parkingEntrySnapshotBucket
   }
 ], [
   {

@@ -185,6 +185,10 @@ function demoEventId(visitId: string, stream: "issued" | "in" | "out") {
   return `00000000-0000-4000-${streamPart}-00000000${suffix}`;
 }
 
+function demoVisitorVehicleId(visitId: string) {
+  return `00000000-0000-4000-8400-00000000${visitId.slice(-4)}`;
+}
+
 export async function seedDemoJourney(manager: EntityManager) {
   const guard = await seedAuthParkingUser(manager, {
     id: DEMO_GUARD_ID,
@@ -311,6 +315,46 @@ export async function seedDemoJourney(manager: EntityManager) {
         visit.hostStaffId ?? null,
         visit.hostDepartment ?? null,
         visit.flagReason ?? null,
+        status,
+        guard.id,
+      ],
+    );
+
+    await manager.query(
+      `
+        INSERT INTO "parking"."visitor_vehicles" (
+          "id",
+          "visitor_id",
+          "vehicle_number",
+          "vehicle_number_normalised",
+          "is_primary",
+          "status",
+          "checked_in",
+          "checked_out",
+          "checked_in_by",
+          "checked_out_by",
+          "created_at",
+          "updated_at"
+        )
+        VALUES (
+          $1, $2, $3, $4, true, $5::"parking"."visitor_vehicle_status",
+          ${checkedIn}, ${checkedOut}, $6, ${visit.checkedOutMinutesAgo ? "$6" : "NULL"}, ${checkedIn}, now()
+        )
+        ON CONFLICT ("visitor_id", "vehicle_number_normalised") DO UPDATE SET
+          "vehicle_number" = EXCLUDED."vehicle_number",
+          "is_primary" = true,
+          "status" = EXCLUDED."status",
+          "checked_in" = EXCLUDED."checked_in",
+          "checked_out" = EXCLUDED."checked_out",
+          "checked_in_by" = EXCLUDED."checked_in_by",
+          "checked_out_by" = EXCLUDED."checked_out_by",
+          "updated_at" = now()
+      `,
+      [
+        demoVisitorVehicleId(visit.id),
+        visit.id,
+        visit.plate,
+        normalisePlate(visit.plate),
         status,
         guard.id,
       ],
