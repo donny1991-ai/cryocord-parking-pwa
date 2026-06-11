@@ -144,7 +144,10 @@ describe("NewEntryFlow", () => {
     expect(screen.getByText("Host contact")).toBeInTheDocument();
     expect(screen.getByText("Aina Host")).toBeInTheDocument();
     expect(screen.getByText("AI Projects Lab")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /0191112222/i })).toHaveAttribute("href", "tel:0191112222");
+    expect(screen.getByRole("link", { name: /WhatsApp 0191112222/i })).toHaveAttribute(
+      "href",
+      expect.stringContaining("https://wa.me/60191112222?text="),
+    );
     expect(screen.getByText("Ext 808")).toBeInTheDocument();
   });
 });

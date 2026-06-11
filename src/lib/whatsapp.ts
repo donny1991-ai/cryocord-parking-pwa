@@ -41,6 +41,23 @@ export function buildPassMessage(opts: {
   return lines.join("\n");
 }
 
+export function buildHostConfirmationMessage(opts: {
+  visitorName?: string | null;
+  plate?: string | null;
+}): string {
+  const visitorName = opts.visitorName?.trim();
+  const plate = opts.plate?.trim();
+  const lines = [
+    "*CryoCord Host Confirmation*",
+    "Please confirm this visitor with the guard.",
+  ];
+
+  if (visitorName) lines.push(`Visitor: ${visitorName}`);
+  if (plate) lines.push(`Vehicle: ${plate}`);
+
+  return lines.join("\n");
+}
+
 /** Full wa.me link, or null if the contact number isn't usable. */
 export function waLink(contact: string, message: string): string | null {
   const number = toWaNumber(contact);

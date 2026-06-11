@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPassMessage, toWaNumber, waLink } from "./whatsapp";
+import { buildHostConfirmationMessage, buildPassMessage, toWaNumber, waLink } from "./whatsapp";
 
 describe("toWaNumber", () => {
   it("normalises Malaysian local numbers", () => {
@@ -48,5 +48,28 @@ describe("buildPassMessage", () => {
     expect(message).toContain("Visitor: Aisyah");
     expect(message).toContain("Type: Visitor");
     expect(message).toContain("View & save your gate pass: https://example.test/pass/token");
+  });
+});
+
+describe("buildHostConfirmationMessage", () => {
+  it("builds a host confirmation prompt with visitor and vehicle details", () => {
+    const message = buildHostConfirmationMessage({
+      visitorName: "Nadia Visitor",
+      plate: "CC 100",
+    });
+
+    expect(message).toContain("*CryoCord Host Confirmation*");
+    expect(message).toContain("Please confirm this visitor with the guard.");
+    expect(message).toContain("Visitor: Nadia Visitor");
+    expect(message).toContain("Vehicle: CC 100");
+  });
+
+  it("omits blank optional details", () => {
+    const message = buildHostConfirmationMessage({
+      visitorName: " ",
+      plate: null,
+    });
+
+    expect(message).toBe("*CryoCord Host Confirmation*\nPlease confirm this visitor with the guard.");
   });
 });

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { BadgeCheck, Ban, Check, CheckCircle2, Pencil, Phone, Plus, Search, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
+import { BadgeCheck, Ban, Check, CheckCircle2, MessageCircle, Pencil, Plus, Search, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Field, Textarea } from "@/components/ui/input";
@@ -13,7 +13,7 @@ import { QrPassShareButton } from "./qr-pass-share-button";
 import { VISIT_TYPES, PURPOSES, type VisitType, type Purpose } from "@/lib/enums";
 import { labelize } from "@/lib/labels";
 import { cn, formatDateTime, normalisePlate } from "@/lib/utils";
-import { buildPassMessage, waLink } from "@/lib/whatsapp";
+import { buildHostConfirmationMessage, buildPassMessage, waLink } from "@/lib/whatsapp";
 import type { Employee, Vehicle } from "@/lib/types";
 
 type Step = "capture" | "form" | "pass";
@@ -70,6 +70,9 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
     () => employees.find((employee) => employee.staffId === hostStaffId),
     [employees, hostStaffId],
   );
+  const selectedHostWhatsappHref = selectedHost?.phone
+    ? waLink(selectedHost.phone, buildHostConfirmationMessage({ visitorName, plate }))
+    : null;
   const hostResults = useMemo(() => {
     const query = hostQuery.trim().toLowerCase();
     const source = query
@@ -655,10 +658,19 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
             <p className="text-xs text-ink-faint">{selectedHost.department}</p>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-ink-soft">
               {selectedHost.phone ? (
-                <a href={`tel:${selectedHost.phone}`} className="inline-flex items-center gap-1 text-brand">
-                  <Phone className="h-3.5 w-3.5" />
-                  {selectedHost.phone}
-                </a>
+                selectedHostWhatsappHref ? (
+                  <a
+                    href={selectedHostWhatsappHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-brand"
+                  >
+                    <MessageCircle className="h-3.5 w-3.5" />
+                    WhatsApp {selectedHost.phone}
+                  </a>
+                ) : (
+                  <span>{selectedHost.phone}</span>
+                )
               ) : (
                 <span>No phone number in HR directory</span>
               )}
