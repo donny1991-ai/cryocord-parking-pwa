@@ -942,6 +942,11 @@ export function describeDetailsUpdated(reason: string | undefined, metadata: Rec
         title: "Visitor details updated",
         description: describeDetailChanges(metadata) ?? "Guard updated visitor details during arrival review.",
       };
+    case "host_reassigned":
+      return {
+        title: "Host reassigned",
+        description: describeDetailChanges(metadata) ?? "Guard changed the confirmed host for this registration.",
+      };
     case "entry_snapshot_captured":
       return {
         title: "Entry snapshot added",

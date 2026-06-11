@@ -9,7 +9,9 @@ describe("PublicVisitorRequestForm", () => {
 
   it("submits a public visitor request with free-text host and one vehicle", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      request: { id: "request-1", vehicleNumber: "WA 18 K" },
+      visitor: { id: "visit-1", name: "Nadia Visitor", vehicleNumber: "WA 18 K" },
+      token: "signed-token",
+      tokenExpiresAt: "2026-06-08T15:59:59.000Z",
     }), { status: 201, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -47,5 +49,8 @@ describe("PublicVisitorRequestForm", () => {
       remarks: "Waiting at guard house",
     }));
     expect(screen.getByText("Registration submitted")).toBeInTheDocument();
+    expect(screen.getAllByText("WA 18 K").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Scan at gate before entering")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Save QR picture/i })).toBeInTheDocument();
   });
 });

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Activity, CarFront, Clock, Download, Flag, ChevronRight, ShieldCheck, UsersRound, Settings } from "lucide-react";
+import { Activity, CarFront, Clock, Download, Flag, ChevronRight, ClipboardList, ShieldCheck, UsersRound, Settings } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { GlassCard } from "@/components/ui/glass-card";
 import { StatCard } from "@/components/ui/stat-card";
@@ -81,6 +81,18 @@ export default async function AdminPage() {
               <div className="flex-1">
                 <p className="font-semibold text-ink">Configuration</p>
                 <p className="text-xs text-ink-faint">Token expiry and overstay thresholds.</p>
+              </div>
+              <ChevronRight className="h-4 w-4 text-ink-faint" />
+            </GlassCard>
+          </Link>
+          <Link href="/parking/requests" className="block">
+            <GlassCard interactive padding="md" className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-500/10">
+                <ClipboardList className="h-5 w-5 text-sky-700" />
+              </span>
+              <div className="flex-1">
+                <p className="font-semibold text-ink">Public registration QR</p>
+                <p className="text-xs text-ink-faint">Print the wall poster or open the public form.</p>
               </div>
               <ChevronRight className="h-4 w-4 text-ink-faint" />
             </GlassCard>

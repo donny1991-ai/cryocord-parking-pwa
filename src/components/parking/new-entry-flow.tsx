@@ -13,7 +13,7 @@ import { QrPassShareButton } from "./qr-pass-share-button";
 import { VISIT_TYPES, PURPOSES, type VisitType, type Purpose } from "@/lib/enums";
 import { labelize } from "@/lib/labels";
 import { cn, formatDateTime, normalisePlate } from "@/lib/utils";
-import { buildHostConfirmationMessage, buildPassMessage, waLink } from "@/lib/whatsapp";
+import { buildPassMessage, waCallLink, waLink } from "@/lib/whatsapp";
 import type { Employee, Vehicle } from "@/lib/types";
 
 type Step = "capture" | "form" | "pass";
@@ -70,9 +70,7 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
     () => employees.find((employee) => employee.staffId === hostStaffId),
     [employees, hostStaffId],
   );
-  const selectedHostWhatsappHref = selectedHost?.phone
-    ? waLink(selectedHost.phone, buildHostConfirmationMessage({ visitorName, plate }))
-    : null;
+  const selectedHostWhatsappCallHref = selectedHost?.phone ? waCallLink(selectedHost.phone) : null;
   const hostResults = useMemo(() => {
     const query = hostQuery.trim().toLowerCase();
     const source = query
@@ -658,15 +656,15 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
             <p className="text-xs text-ink-faint">{selectedHost.department}</p>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-ink-soft">
               {selectedHost.phone ? (
-                selectedHostWhatsappHref ? (
+                selectedHostWhatsappCallHref ? (
                   <a
-                    href={selectedHostWhatsappHref}
+                    href={selectedHostWhatsappCallHref}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-brand"
                   >
                     <MessageCircle className="h-3.5 w-3.5" />
-                    WhatsApp {selectedHost.phone}
+                    WhatsApp Call {selectedHost.phone}
                   </a>
                 ) : (
                   <span>{selectedHost.phone}</span>

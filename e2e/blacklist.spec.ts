@@ -24,7 +24,7 @@ test.describe("vehicle blacklist", () => {
     ]);
 
     await page.goto("/parking/entry");
-    await expect(page.getByRole("heading", { name: "New Entry" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Gate Entry" })).toBeVisible();
 
     const plateInput = page.getByPlaceholder("e.g. WA 18 K");
     await plateInput.pressSequentially(seed.plate);

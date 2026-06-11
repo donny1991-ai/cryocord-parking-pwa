@@ -233,7 +233,7 @@ function revalidateParkingPages(visitorId: string) {
     revalidatePath("/parking");
     revalidatePath("/parking/visits");
     revalidatePath("/parking/exit");
-    revalidatePath("/parking/arrival");
+    revalidatePath("/parking/entry");
     revalidatePath(`/parking/visit/${visitorId}`);
   } catch {
     // Direct test invocation does not always provide Next's static generation store.

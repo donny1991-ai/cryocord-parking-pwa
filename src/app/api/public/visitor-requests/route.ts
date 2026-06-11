@@ -10,16 +10,18 @@ function isPublicRequestValidationError(message: string) {
     message.includes("must") ||
     message.includes("Invalid purpose") ||
     message.includes("Number of visitors") ||
-    message.includes("Other visitor names")
+    message.includes("Other visitor names") ||
+    message.includes("blacklisted") ||
+    message.includes("already")
   );
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const visitorRequest = await createPublicVisitorRequest(body);
+    const registration = await createPublicVisitorRequest(body);
     revalidateRequestPages();
-    return NextResponse.json({ request: visitorRequest }, { status: 201 });
+    return NextResponse.json(registration, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to submit visitor request.";
     if (isPublicRequestValidationError(message)) {
@@ -34,6 +36,7 @@ export async function POST(request: NextRequest) {
 function revalidateRequestPages() {
   try {
     revalidatePath("/parking/requests");
+    revalidatePath("/parking/visits");
     revalidatePath("/parking");
   } catch {
     // Direct route invocation in integration tests does not always have a static generation store.

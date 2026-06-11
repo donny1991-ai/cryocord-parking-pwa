@@ -3,6 +3,7 @@ import { Brackets, IsNull } from "typeorm";
 import { HrUserSchema } from "@/db/entities";
 import { getParkingDataSource } from "@/db/client";
 import type { Employee } from "@/lib/types";
+import { revealHrProtectedText } from "./hr-data-protection";
 
 function normaliseHostKey(value: string | null | undefined) {
   return String(value ?? "").trim().toLowerCase();
@@ -21,7 +22,7 @@ function toEmployee(user: {
     staffId: user.empNo?.trim() || String(user.id),
     name: user.name,
     department: user.department?.deletedAt ? "Unassigned" : user.department?.name ?? "Unassigned",
-    phone: user.phone?.trim() || undefined,
+    phone: revealHrProtectedText(user.phone) ?? undefined,
     extension: user.extension?.trim() || undefined,
     email: user.email,
   };

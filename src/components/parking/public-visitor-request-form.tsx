@@ -7,6 +7,9 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { PURPOSES, type Purpose } from "@/lib/enums";
 import { purposeLabel } from "@/lib/labels";
+import { formatDateTime } from "@/lib/utils";
+import { QrPass } from "./qr-pass";
+import { QrPassShareButton } from "./qr-pass-share-button";
 
 function cleanName(value: string) {
   return value.trim().replace(/\s+/g, " ");
@@ -17,7 +20,12 @@ function parseNames(values: string[]) {
 }
 
 export function PublicVisitorRequestForm() {
-  const [submittedPlate, setSubmittedPlate] = useState("");
+  const [issuedPass, setIssuedPass] = useState<{
+    token: string;
+    tokenExpiresAt: string;
+    plate: string;
+    visitorName: string;
+  } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -93,8 +101,16 @@ export function PublicVisitorRequestForm() {
       if (!response.ok) {
         throw new Error(payload.error ?? "Unable to submit registration.");
       }
+      if (!payload.token || !payload.tokenExpiresAt || !payload.visitor?.vehicleNumber) {
+        throw new Error("Registration was submitted, but the QR pass could not be prepared.");
+      }
 
-      setSubmittedPlate(vehicleNumber.trim().toUpperCase());
+      setIssuedPass({
+        token: String(payload.token ?? ""),
+        tokenExpiresAt: String(payload.tokenExpiresAt ?? ""),
+        plate: String(payload.visitor?.vehicleNumber ?? vehicleNumber).trim().toUpperCase(),
+        visitorName: String(payload.visitor?.name ?? name).trim(),
+      });
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Unable to submit registration.");
     } finally {
@@ -102,23 +118,48 @@ export function PublicVisitorRequestForm() {
     }
   }
 
-  if (submittedPlate) {
+  if (issuedPass) {
+    const validUntil = issuedPass.tokenExpiresAt ? formatDateTime(issuedPass.tokenExpiresAt) : "today";
+
     return (
-      <GlassCard padding="lg" className="space-y-5 text-center">
-        <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/12 text-emerald-700">
-          <CheckCircle2 className="h-8 w-8" />
-        </span>
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.22em] text-brand">Registration submitted</p>
-          <h1 className="mt-2 text-2xl font-bold text-ink">{submittedPlate}</h1>
-          <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-            Please proceed to security. A guard will verify your details and confirm your host before entry.
-          </p>
-        </div>
-        <Button type="button" variant="outline" className="w-full" onClick={() => setSubmittedPlate("")}>
+      <div className="space-y-4">
+        <GlassCard padding="lg" className="space-y-4 text-center">
+          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/12 text-emerald-700">
+            <CheckCircle2 className="h-8 w-8" />
+          </span>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.22em] text-brand">Registration submitted</p>
+            <h1 className="mt-2 text-2xl font-bold text-ink">{issuedPass.plate}</h1>
+            <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+              Save this QR picture and show it to security. A guard will scan it, verify your details, and assign the confirmed host before entry.
+            </p>
+          </div>
+        </GlassCard>
+
+        <QrPass
+          token={issuedPass.token}
+          plate={issuedPass.plate}
+          visitorName={issuedPass.visitorName}
+          visitType="visitor"
+          validUntil={validUntil}
+          heading="Scan at gate before entering"
+        />
+
+        <QrPassShareButton
+          token={issuedPass.token}
+          plate={issuedPass.plate}
+          visitorName={issuedPass.visitorName}
+          visitType="visitor"
+          validUntil={validUntil}
+          heading="Visitor e-Check-In"
+          message="Please show this QR pass to security at the gate."
+          buttonLabel="Save QR picture"
+        />
+
+        <Button type="button" variant="outline" className="w-full" onClick={() => setIssuedPass(null)}>
           Submit another visitor
         </Button>
-      </GlassCard>
+      </div>
     );
   }
 

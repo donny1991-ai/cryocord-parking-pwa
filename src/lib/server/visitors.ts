@@ -163,7 +163,13 @@ type ResolvedPassClaims = PassClaims & {
   signatureAlgorithm?: string;
 };
 
-type PublicPassVisitorRow = Pick<VisitorEntity, "id" | "qrTokenJti" | "status" | "visitDate" | "createdAt">;
+type PublicPassVisitorRow = Pick<
+  VisitorEntity,
+  "id" | "qrTokenJti" | "status" | "visitDate" | "createdAt" | "name" | "vehicleNumber" | "additionalVehicleNumbers"
+> & {
+  typeCode: string;
+  typeLabel: string;
+};
 
 export interface IssuedVisitorPass {
   visitor: VisitorDto;
@@ -179,6 +185,11 @@ export type PublicVisitorPass =
       heading: string;
       message: string;
       validUntil: string;
+      visitDate: string | null;
+      visitorName: string;
+      plate: string;
+      additionalPlates: string[];
+      visitTypeLabel: string;
     }
   | {
       state: "inactive";
@@ -1099,13 +1110,19 @@ export async function getPublicVisitorPass(token: string): Promise<PublicVisitor
   const visitors = (await ds.manager.query(
     `
       SELECT
-        "id",
-        "qr_token_jti" AS "qrTokenJti",
-        "status",
-        "visit_date"::text AS "visitDate",
-        "created_at" AS "createdAt"
-      FROM "parking"."visitors"
-      WHERE "id" = $1
+        v."id",
+        v."qr_token_jti" AS "qrTokenJti",
+        v."status",
+        v."visit_date"::text AS "visitDate",
+        v."created_at" AS "createdAt",
+        v."name",
+        v."vehicle_number" AS "vehicleNumber",
+        COALESCE(v."additional_vehicle_numbers", ARRAY[]::text[]) AS "additionalVehicleNumbers",
+        COALESCE(vt."code", 'visitor') AS "typeCode",
+        COALESCE(vt."label", 'Visitor') AS "typeLabel"
+      FROM "parking"."visitors" v
+      LEFT JOIN "parking"."visitor_types" vt ON vt."id" = v."type_id"
+      WHERE v."id" = $1
       LIMIT 1
     `,
     [claims.visitId],
@@ -1155,6 +1172,11 @@ export async function getPublicVisitorPass(token: string): Promise<PublicVisitor
         ? "Save or screenshot this code and show it to the guard when you arrive."
         : "Show this pass to the guard when you leave.",
     validUntil: policyExpiresAt.toISOString(),
+    visitDate: visitor.visitDate,
+    visitorName: visitor.name,
+    plate: visitor.vehicleNumber,
+    additionalPlates: Array.isArray(visitor.additionalVehicleNumbers) ? visitor.additionalVehicleNumbers : [],
+    visitTypeLabel: visitor.typeLabel,
   };
 }
 

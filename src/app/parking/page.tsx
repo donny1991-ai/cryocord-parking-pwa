@@ -2,11 +2,9 @@ import Link from "next/link";
 import {
   ArrowRight,
   ChevronRight,
-  ClipboardList,
   DoorOpen,
   Flag,
   LogIn,
-  QrCode,
   ScanLine,
   ShieldCheck,
   TriangleAlert,
@@ -22,6 +20,7 @@ export default async function DashboardPage() {
   const snapshot = await getParkingSnapshot();
   const c = snapshot.counts;
   const inside = snapshot.insideVisits;
+  const recentLog = snapshot.logVisits.slice(0, 5);
   const series = snapshot.occupancySeries.map((s) => s.inside);
   const dashboardDate = snapshot.now.toLocaleDateString("en-MY", {
     weekday: "long",
@@ -58,9 +57,9 @@ export default async function DashboardPage() {
           <ActionTile
             href="/parking/entry"
             icon={ScanLine}
-            title="New Entry"
-            subtitle="Capture plate and issue pass"
-            cta="Start entry"
+            title="Gate Entry"
+            subtitle="Plate scan or visitor QR check-in"
+            cta="Open entry"
             tone="entry"
           />
           <ActionTile
@@ -73,24 +72,6 @@ export default async function DashboardPage() {
           />
         </div>
 
-        <ActionTile
-          href="/parking/arrival"
-          icon={QrCode}
-          title="Arrival Scan"
-          subtitle="Review a visitor QR before check-in"
-          cta="Scan QR"
-          tone="arrival"
-          compact
-        />
-        <ActionTile
-          href="/parking/requests"
-          icon={ClipboardList}
-          title="Public Registrations"
-          subtitle="Review wall-QR submissions"
-          cta="Review"
-          tone="request"
-          compact
-        />
       </section>
 
       <section className="space-y-3">
@@ -129,6 +110,25 @@ export default async function DashboardPage() {
           </GlassCard>
         </Link>
       )}
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="section-label">Recent visit log</h2>
+          <Link href="/parking/visits" className="text-xs font-semibold text-brand">
+            View all
+          </Link>
+        </div>
+        <div className="stagger-children space-y-2.5">
+          {recentLog.map((v) => (
+            <VisitRow key={`${v.id}:${v.vehicleId ?? "registration"}`} visit={v} now={snapshot.now} />
+          ))}
+          {recentLog.length === 0 && (
+            <GlassCard padding="lg" className="text-center text-sm font-semibold text-ink-faint">
+              No visit records yet.
+            </GlassCard>
+          )}
+        </div>
+      </section>
 
       {/* Currently inside list */}
       <section className="space-y-3">
@@ -171,7 +171,7 @@ function ActionTile({
   title: string;
   subtitle: string;
   cta: string;
-  tone: "entry" | "exit" | "arrival" | "request";
+  tone: "entry" | "exit";
   compact?: boolean;
 }) {
   const toneClasses = {
@@ -179,22 +179,14 @@ function ActionTile({
       "bg-[linear-gradient(145deg,#18bd88_0%,#0b8b58_88%)] text-white shadow-[0_22px_44px_-24px_rgba(9,132,82,0.65)]",
     exit:
       "bg-[linear-gradient(145deg,#e1092b_0%,#9f001c_88%)] text-white shadow-[0_22px_44px_-24px_rgba(200,16,46,0.7)]",
-    arrival:
-      "glass border-emerald-500/18 bg-white/65 text-ink shadow-[0_16px_36px_-24px_rgba(20,22,60,0.32)]",
-    request:
-      "glass border-sky-500/18 bg-white/65 text-ink shadow-[0_16px_36px_-24px_rgba(20,22,60,0.32)]",
   }[tone];
   const iconClasses = {
     entry: "bg-white/18 text-white ring-white/25",
     exit: "bg-white/18 text-white ring-white/25",
-    arrival: "bg-emerald-500/10 text-emerald-700 ring-emerald-500/20",
-    request: "bg-sky-500/10 text-sky-700 ring-sky-500/20",
   }[tone];
   const ctaClasses = {
     entry: "bg-white text-emerald-700",
     exit: "bg-white text-brand",
-    arrival: "bg-emerald-500/10 text-emerald-700",
-    request: "bg-sky-500/10 text-sky-700",
   }[tone];
 
   return (
@@ -215,7 +207,7 @@ function ActionTile({
         </span>
         <span className={`mt-4 inline-flex rounded-full px-3 py-1.5 text-xs font-bold ${ctaClasses}`}>{cta}</span>
       </span>
-      {compact && <ArrowRight className={`h-5 w-5 shrink-0 ${tone === "request" ? "text-sky-700" : "text-emerald-700"}`} />}
+      {compact && <ArrowRight className="h-5 w-5 shrink-0 text-ink-soft" />}
     </Link>
   );
 }

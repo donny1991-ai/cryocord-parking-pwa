@@ -4,7 +4,7 @@ import type { VisitorRequestEntity, VisitorRequestStatus } from "@/db/entities";
 import { getParkingDataSource } from "@/db/client";
 import { type AuthenticatedParkingUser } from "@/lib/server/auth";
 import { getHostByStaffId } from "@/lib/server/hosts";
-import { assertPurpose, createVisitorPass, normaliseVisitorCount } from "@/lib/server/visitors";
+import { assertPurpose, createVisitorPass, normaliseVisitorCount, type IssuedVisitorPass } from "@/lib/server/visitors";
 import type { IdentityType } from "@/lib/server/visitors";
 import type { Purpose } from "@/lib/enums";
 import type { VisitorRequest } from "@/lib/types";
@@ -26,6 +26,9 @@ export interface PublicVisitorRequestInput {
 }
 
 export type VisitorRequestDto = VisitorRequest;
+export type PublicVisitorRegistrationResult = IssuedVisitorPass & {
+  requestedHostText: string;
+};
 
 const MALAYSIAN_NRIC_PLACE_CODES = new Set([
   "01", "02", "03", "04", "05", "06", "07", "08", "09", "10",
@@ -147,8 +150,12 @@ function toDto(request: VisitorRequestEntity): VisitorRequestDto {
   };
 }
 
-export async function createPublicVisitorRequest(input: PublicVisitorRequestInput) {
-  const ds = await getParkingDataSource();
+function withRequestedHostRemark(remarks: string | null, requestedHostText: string) {
+  const requestedHostRemark = `Requested host: ${requestedHostText}`;
+  return remarks ? `${requestedHostRemark}\n\n${remarks}` : requestedHostRemark;
+}
+
+export async function createPublicVisitorRequest(input: PublicVisitorRequestInput): Promise<PublicVisitorRegistrationResult> {
   const name = cleanText(input.name);
   const phoneNumber = cleanText(input.phoneNumber);
   const organisation = cleanOptionalText(input.organisation);
@@ -174,23 +181,23 @@ export async function createPublicVisitorRequest(input: PublicVisitorRequestInpu
   assertLength(requestedHostText, 160, "Host");
   assertLength(remarks, 2000, "Remarks");
 
-  const entity = ds.manager.create(VisitorRequestSchema, {
+  const issued = await createVisitorPass({
     name,
     phoneNumber,
-    organisation,
-    ...identity,
+    organisation: organisation ?? undefined,
+    identityType: identity.identityType,
+    nric: identity.nric,
+    passportNumber: identity.passportNumber,
     vehicleNumber,
-    vehicleNumberNormalised: normalisePlate(vehicleNumber),
+    typeCode: "visitor",
     purpose,
     visitorCount,
     otherVisitorNames,
-    requestedHostText,
-    remarks,
-    status: "submitted",
+    remarks: withRequestedHostRemark(remarks, requestedHostText),
+    checkInOnCreate: false,
   });
-  const saved = await ds.manager.save(VisitorRequestSchema, entity);
 
-  return toDto(saved);
+  return { ...issued, requestedHostText };
 }
 
 export async function getVisitorRequests(status?: VisitorRequestStatus) {
