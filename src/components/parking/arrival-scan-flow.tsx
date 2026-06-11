@@ -3,7 +3,7 @@
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { Ban, CameraOff, CheckCircle2, LogIn, PhoneCall, Plus, ScanLine, ShieldCheck, X } from "lucide-react";
+import { Ban, CameraOff, CheckCircle2, LogIn, MessageCircle, Plus, ScanLine, ShieldCheck, X } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/ui/badge";
@@ -12,6 +12,7 @@ import { checkCameraSupport } from "@/lib/camera";
 import { labelize, purposeLabel, visitTypeLabel } from "@/lib/labels";
 import { PURPOSES, VISIT_TYPES, type Purpose, type VisitType } from "@/lib/enums";
 import { normalisePlate } from "@/lib/utils";
+import { buildHostConfirmationMessage, waLink } from "@/lib/whatsapp";
 
 const QrScanner = dynamic(() => import("./qr-scanner").then((module) => module.QrScanner), {
   ssr: false,
@@ -678,6 +679,8 @@ export function ArrivalScanFlow() {
               host={reviewing.host ?? undefined}
               fallbackStaffId={draft.hostStaffId}
               fallbackDepartment={draft.hostDepartment}
+              visitorName={draft.name}
+              plate={selectedVehicleNumber || draft.vehicleNumber}
             />
           )}
 
@@ -762,16 +765,24 @@ function HostContactBlock({
   host,
   fallbackStaffId,
   fallbackDepartment,
+  visitorName,
+  plate,
 }: {
   host?: ScannedHost;
   fallbackStaffId?: string;
   fallbackDepartment?: string;
+  visitorName?: string;
+  plate?: string;
 }) {
+  const whatsappHref = host?.phone
+    ? waLink(host.phone, buildHostConfirmationMessage({ visitorName, plate }))
+    : null;
+
   return (
     <div className="rounded-2xl border border-white/60 bg-white/45 px-3.5 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Call host to confirm</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">WhatsApp host to confirm</p>
           <p className="mt-1 truncate text-sm font-bold text-ink">{host?.name ?? fallbackStaffId ?? "Host not found"}</p>
           <p className="text-xs text-ink-faint">{host?.department ?? fallbackDepartment ?? "Department unavailable"}</p>
           <p className="mt-1 text-xs font-semibold text-ink-soft">
@@ -779,13 +790,15 @@ function HostContactBlock({
             {host?.extension ? ` · Ext ${host.extension}` : ""}
           </p>
         </div>
-        {host?.phone && (
+        {whatsappHref && (
           <a
-            href={`tel:${host.phone}`}
+            href={whatsappHref}
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex shrink-0 items-center gap-1 rounded-full border border-brand/30 bg-white/50 px-3 py-1.5 text-xs font-bold text-brand"
           >
-            <PhoneCall className="h-3.5 w-3.5" />
-            Call
+            <MessageCircle className="h-3.5 w-3.5" />
+            WhatsApp
           </a>
         )}
       </div>

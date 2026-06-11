@@ -7,8 +7,8 @@ import {
   DoorOpen,
   FileClock,
   Hash,
+  MessageCircle,
   Phone,
-  PhoneCall,
   ShieldCheck,
   UserRound,
   type LucideIcon,
@@ -27,7 +27,7 @@ import { getVisitAuditTrail, getVisitById } from "@/lib/server/parking-data";
 import { requireParkingPageUser } from "@/lib/server/page-auth";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
 import { purposeLabel, visitTypeLabel } from "@/lib/labels";
-import { buildPassMessage, waLink } from "@/lib/whatsapp";
+import { buildHostConfirmationMessage, buildPassMessage, waLink } from "@/lib/whatsapp";
 import { canShareVisitPass, getVisitPassHeading } from "@/lib/visitor-pass";
 import type { Employee } from "@/lib/types";
 
@@ -203,6 +203,8 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
           host={visit.host}
           fallbackStaffId={visit.hostStaffId}
           fallbackDepartment={visit.hostDepartment}
+          visitorName={visit.visitorName}
+          plate={visit.plate}
         />
       )}
 
@@ -326,12 +328,19 @@ function HostConfirmationCard({
   host,
   fallbackStaffId,
   fallbackDepartment,
+  visitorName,
+  plate,
 }: {
   host?: Employee;
   fallbackStaffId?: string;
   fallbackDepartment?: string;
+  visitorName: string;
+  plate: string;
 }) {
   const phone = host?.phone;
+  const whatsappHref = phone
+    ? waLink(phone, buildHostConfirmationMessage({ visitorName, plate }))
+    : null;
   return (
     <GlassCard padding="lg" className="space-y-3">
       <div className="flex items-start justify-between gap-3">
@@ -340,13 +349,15 @@ function HostConfirmationCard({
           <p className="mt-1 text-lg font-bold text-ink">{host?.name ?? fallbackStaffId ?? "Host not found"}</p>
           <p className="text-sm text-ink-faint">{host?.department ?? fallbackDepartment ?? "Department unavailable"}</p>
         </div>
-        {phone ? (
+        {whatsappHref ? (
           <a
-            href={`tel:${phone}`}
+            href={whatsappHref}
+            target="_blank"
+            rel="noopener noreferrer"
             className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")}
           >
-            <PhoneCall className="h-4 w-4" />
-            Call
+            <MessageCircle className="h-4 w-4" />
+            WhatsApp
           </a>
         ) : null}
       </div>
