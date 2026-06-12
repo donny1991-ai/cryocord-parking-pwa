@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { authErrorResponse, requireParkingUser } from "@/lib/server/auth";
+import { invalidateVehicleReadModelCache } from "@/lib/server/parking-cache";
 import { deleteParkingVehicle, updateParkingVehicle } from "@/lib/server/admin-vehicles";
 
 export const runtime = "nodejs";
@@ -11,6 +12,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const { id } = await params;
     const body = await request.json();
     const vehicle = await updateParkingVehicle(id, body);
+    await invalidateVehicleReadModelCache();
     revalidateVehiclePages();
     return NextResponse.json({ vehicle });
   } catch (error) {
@@ -27,6 +29,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     await requireParkingUser(request, ["admin"]);
     const { id } = await params;
     const vehicle = await deleteParkingVehicle(id);
+    await invalidateVehicleReadModelCache();
     revalidateVehiclePages();
     return NextResponse.json({ vehicle });
   } catch (error) {

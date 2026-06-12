@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { CarFront, QrCode } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
-import { cn } from "@/lib/utils";
 import type { Vehicle, Employee } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { ArrivalScanFlow } from "./arrival-scan-flow";
 import { NewEntryFlow } from "./new-entry-flow";
 
@@ -28,7 +28,7 @@ export function EntryWorkflow({
           active={mode === "plate"}
           icon={CarFront}
           title="Plate entry"
-          subtitle="Scan plate and issue pass"
+          subtitle="Manual entry and pass"
           onClick={() => setMode("plate")}
         />
         <ModeButton

@@ -7,6 +7,16 @@ describe("NewEntryFlow", () => {
     vi.unstubAllGlobals();
   });
 
+  it("starts with manual plate entry instead of camera capture", () => {
+    render(<NewEntryFlow employees={[]} vehicles={[]} />);
+
+    expect(screen.getByText("Manual vehicle entry")).toBeInTheDocument();
+    expect(screen.getByLabelText("Vehicle plate")).toHaveAttribute("placeholder", "e.g. WA 18 K");
+    expect(screen.getByRole("button", { name: /Use/i })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Capture & read plate/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Retry camera/i)).not.toBeInTheDocument();
+  });
+
   it("submits optional visit time, visitor count, and remarks", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       visitor: { id: "visitor-1" },

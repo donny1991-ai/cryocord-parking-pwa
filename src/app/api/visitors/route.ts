@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { authErrorResponse, requireParkingUser } from "@/lib/server/auth";
+import { invalidateParkingReadModelCache } from "@/lib/server/parking-cache";
 import { assertPurpose, assertVisitDate, assertVisitorTypeCode, createVisitorPass } from "@/lib/server/visitors";
 
 export const runtime = "nodejs";
@@ -150,6 +151,7 @@ export async function POST(request: NextRequest) {
       checkInOnCreate: body.checkInOnCreate === true,
     });
 
+    await invalidateParkingReadModelCache();
     revalidateParkingPages(result.visitor.id);
     return NextResponse.json(result, { status: 201 });
   } catch (error) {

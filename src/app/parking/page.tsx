@@ -58,7 +58,7 @@ export default async function DashboardPage() {
             href="/parking/entry"
             icon={ScanLine}
             title="Gate Entry"
-            subtitle="Plate scan or visitor QR check-in"
+            subtitle="Manual plate or QR arrival"
             cta="Open entry"
             tone="entry"
           />

@@ -16,7 +16,7 @@ export async function seedParkingUser(
   input: SeedParkingUserInput = {},
 ): Promise<ParkingUserEntity> {
   const id = input.id ?? faker.string.uuid();
-  const email = input.email ?? faker.internet.email({ provider: "parking.test" }).toLowerCase();
+  const email = input.email ?? `parking-user-${id}@parking.test`;
   const name = input.name ?? faker.person.fullName();
   const phone = input.phone === undefined ? faker.phone.number({ style: "international" }) : input.phone;
   const role = input.role ?? "guard";

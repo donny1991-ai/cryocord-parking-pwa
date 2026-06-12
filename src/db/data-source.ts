@@ -31,6 +31,12 @@ const sslMode =
     ? process.env.TEST_DATABASE_SSL ?? process.env.SUPABASE_TEST_DB_SSL
     : process.env.DATABASE_SSL ?? process.env.SUPABASE_DB_SSL;
 
+const poolMax = Number(
+  process.env.NODE_ENV === "test"
+    ? process.env.TEST_DATABASE_POOL_MAX ?? process.env.DATABASE_POOL_MAX ?? 3
+    : process.env.DATABASE_POOL_MAX ?? 3,
+);
+
 if (process.env.NODE_ENV === "test") {
   assertSafeTestDatabaseUrl(databaseUrl);
 }
@@ -69,6 +75,9 @@ export const AppDataSource = new DataSource({
   migrationsTableName: "typeorm_migrations",
   synchronize: false,
   logging: process.env.TYPEORM_LOGGING === "true",
+  extra: {
+    max: Number.isInteger(poolMax) && poolMax > 0 ? poolMax : 3,
+  },
   ssl:
     sslMode === "true"
       ? { rejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== "false" }

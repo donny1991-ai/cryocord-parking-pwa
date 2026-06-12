@@ -1,6 +1,6 @@
 import { EntitySchema } from "typeorm";
 
-export type ParkingUserRole = "guard" | "supervisor" | "admin";
+export type ParkingUserRole = "guard" | "admin";
 
 export interface ParkingUserEntity {
   id: string;
@@ -33,7 +33,7 @@ export const ParkingUserSchema = new EntitySchema<ParkingUserEntity>({
     role: {
       type: "enum",
       enumName: "parking_user_role",
-      enum: ["guard", "supervisor", "admin"],
+      enum: ["guard", "admin"],
       default: "'guard'",
     },
     active: {

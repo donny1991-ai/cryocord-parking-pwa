@@ -7,6 +7,8 @@ import { getPreRegistrationTokenExpiresAt, getVisitTokenExpiresAt, signVisitToke
 import { getHostByStaffId, getHostsByStaffIds } from "@/lib/server/hosts";
 import { getParkingSettings } from "@/lib/server/admin-settings";
 import { createEntrySnapshotSignedUrl } from "@/lib/server/entry-snapshot-storage";
+import { cacheJson } from "@/lib/server/cache";
+import { PARKING_CACHE_KEYS } from "@/lib/server/parking-cache";
 import type { AuditEntry, Employee, Vehicle, Visit, VisitEntrySnapshot, VisitVehicle } from "@/lib/types";
 import type { DataSource } from "typeorm";
 
@@ -155,6 +157,22 @@ interface VehicleReadRow {
   blacklisted: boolean;
   createdAt: Date;
   updatedAt: Date;
+}
+
+interface ReadVisitorsOptions {
+  whereSql?: string;
+  params?: unknown[];
+  orderBySql?: string;
+  limit?: number;
+}
+
+interface ParkingSnapshotCachePayload {
+  counts: ParkingCounts;
+  insideVisits: Visit[];
+  logVisits: Visit[];
+  allVisits: Visit[];
+  occupancySeries: OccupancyPoint[];
+  nowIso: string;
 }
 
 function toPurpose(value: string): Purpose {
@@ -455,9 +473,15 @@ function toVisitEntrySnapshots(row: VisitorReadRow): VisitEntrySnapshot[] | unde
   return undefined;
 }
 
-async function readVisitors() {
+async function readVisitors(options: ReadVisitorsOptions = {}) {
   const ds = await getParkingDataSource();
   const columns = await getAvailableVisitorColumns(ds);
+  const params = [...(options.params ?? [])];
+  const whereSql = options.whereSql ? `WHERE ${options.whereSql}` : "";
+  const orderBySql = options.orderBySql ?? `ORDER BY COALESCE(v."checked_in", v."created_at") DESC`;
+  const limitSql = typeof options.limit === "number" && options.limit > 0
+    ? `LIMIT $${params.push(options.limit)}`
+    : "";
   const rows = (await ds.manager.query(
     `
       SELECT
@@ -496,8 +520,11 @@ async function readVisitors() {
         v."created_at" AS "createdAt"
       FROM "parking"."visitors" v
       INNER JOIN "parking"."visitor_types" vt ON vt."id" = v."type_id"
-      ORDER BY COALESCE(v."checked_in", v."created_at") DESC
+      ${whereSql}
+      ${orderBySql}
+      ${limitSql}
     `,
+    params,
   )) as VisitorReadRow[];
 
   if (rows.length === 0) return rows;
@@ -563,7 +590,7 @@ async function readVisitors() {
   }));
 }
 
-function buildCounts(visits: Visit[]) {
+function buildCounts(visits: Visit[], todayEntriesOverride?: number) {
   const inside = visits.reduce(
     (sum, visit) =>
       sum +
@@ -578,7 +605,7 @@ function buildCounts(visits: Visit[]) {
   const flagged = visits
     .filter((visit) => visit.status === "flagged")
     .reduce((sum, visit) => sum + (visit.vehicles?.filter((vehicle) => vehicle.status === "checked_in").length ?? 1), 0);
-  const todayEntries = visits.filter((v) => {
+  const todayEntries = todayEntriesOverride ?? visits.filter((v) => {
     const date = new Date(v.createdAt);
     const today = new Date();
     return date.toDateString() === today.toDateString();
@@ -689,27 +716,142 @@ export function expandLogVehicleVisits(visits: Visit[]): Visit[] {
     });
 }
 
-export async function getParkingSnapshot(): Promise<ParkingSnapshot> {
+function getMalaysiaDayBounds(now: Date) {
+  const malaysiaTime = new Date(now.getTime() + MALAYSIA_UTC_OFFSET_MS);
+  const startUtc = Date.UTC(
+    malaysiaTime.getUTCFullYear(),
+    malaysiaTime.getUTCMonth(),
+    malaysiaTime.getUTCDate(),
+    0,
+    0,
+    0,
+    0,
+  );
+  const start = new Date(startUtc - MALAYSIA_UTC_OFFSET_MS);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { start, end };
+}
+
+async function getTodayEntryCount(now: Date) {
+  const ds = await getParkingDataSource();
+  const { start, end } = getMalaysiaDayBounds(now);
+  const rows = (await ds.manager.query(
+    `
+      SELECT COUNT(*)::int AS "count"
+      FROM "parking"."visitors"
+      WHERE "created_at" >= $1
+        AND "created_at" < $2
+    `,
+    [start, end],
+  )) as Array<{ count: number }>;
+
+  return Number(rows[0]?.count ?? 0);
+}
+
+async function readSnapshotVisitors(recentLimit = 200) {
+  const ds = await getParkingDataSource();
+  const idRows = (await ds.manager.query(
+    `
+      SELECT "id"
+      FROM (
+        SELECT
+          v."id",
+          COALESCE(v."checked_in", v."created_at") AS "sortAt",
+          0 AS "priority"
+        FROM "parking"."visitors" v
+        WHERE v."status" IN ('pending', 'checked_in')
+          OR v."flag_reason" IS NOT NULL
+
+        UNION ALL
+
+        (
+          SELECT
+            v."id",
+            COALESCE(v."checked_out", v."checked_in", v."created_at") AS "sortAt",
+            1 AS "priority"
+          FROM "parking"."visitors" v
+          ORDER BY COALESCE(v."checked_out", v."checked_in", v."created_at") DESC
+          LIMIT $1
+        )
+      ) selected
+      ORDER BY "priority" ASC, "sortAt" DESC
+    `,
+    [recentLimit],
+  )) as Array<{ id: string }>;
+  const ids = [...new Set(idRows.map((row) => row.id))];
+  if (ids.length === 0) return [];
+
+  return readVisitors({
+    whereSql: `v."id" = ANY($1::uuid[])`,
+    params: [ids],
+    orderBySql: `ORDER BY COALESCE(v."checked_out", v."checked_in", v."created_at") DESC`,
+  });
+}
+
+function toListSafeVisit(visit: Visit): Visit {
+  const { nric: _nric, passportNumber: _passportNumber, ...safeVisit } = visit;
+  return safeVisit;
+}
+
+function toSnapshotPayload(snapshot: ParkingSnapshot): ParkingSnapshotCachePayload {
+  return {
+    counts: snapshot.counts,
+    insideVisits: snapshot.insideVisits.map(toListSafeVisit),
+    logVisits: snapshot.logVisits.map(toListSafeVisit),
+    allVisits: snapshot.allVisits.map(toListSafeVisit),
+    occupancySeries: snapshot.occupancySeries,
+    nowIso: snapshot.now.toISOString(),
+  };
+}
+
+function fromSnapshotPayload(payload: ParkingSnapshotCachePayload): ParkingSnapshot {
+  return {
+    counts: payload.counts,
+    insideVisits: payload.insideVisits,
+    logVisits: payload.logVisits,
+    allVisits: payload.allVisits,
+    occupancySeries: payload.occupancySeries,
+    now: new Date(payload.nowIso),
+  };
+}
+
+async function buildParkingSnapshotPayload(): Promise<ParkingSnapshotCachePayload> {
   const now = new Date();
-  const [rows, settings] = await Promise.all([readVisitors(), getParkingSettings()]);
-  const allVisits = rows.map((row) => toVisit(row, now, settings.overstayAllowedDays));
+  const [rows, settings, todayEntries] = await Promise.all([
+    readSnapshotVisitors(),
+    getParkingSettings(),
+    getTodayEntryCount(now),
+  ]);
+  const allVisits = rows.map((row) => toListSafeVisit(toVisit(row, now, settings.overstayAllowedDays)));
   const insideVisits = expandInsideVehicleVisits(allVisits);
   const logVisits = expandLogVehicleVisits(allVisits);
 
-  return {
-    counts: buildCounts(allVisits),
+  return toSnapshotPayload({
+    counts: buildCounts(allVisits, todayEntries),
     insideVisits,
     logVisits,
     allVisits,
     occupancySeries: buildOccupancySeries(allVisits, now),
     now,
-  };
+  });
+}
+
+export async function getParkingSnapshot(): Promise<ParkingSnapshot> {
+  const payload = await cacheJson(PARKING_CACHE_KEYS.snapshot, 5, buildParkingSnapshotPayload);
+  return fromSnapshotPayload(payload);
 }
 
 export async function getVisitById(id: string) {
   const now = new Date();
-  const [rows, settings] = await Promise.all([readVisitors(), getParkingSettings()]);
-  const row = rows.find((candidate) => candidate.id === id);
+  const [rows, settings] = await Promise.all([
+    readVisitors({
+      whereSql: `v."id" = $1`,
+      params: [id],
+      limit: 1,
+    }),
+    getParkingSettings(),
+  ]);
+  const row = rows[0];
   if (!row) return null;
 
   const visit = toVisit(row, now, settings.overstayAllowedDays);
@@ -1025,7 +1167,7 @@ export function getDemoEmployees() {
   return demoEmployees;
 }
 
-export async function getParkingVehicles(): Promise<Vehicle[]> {
+async function loadParkingVehicles(): Promise<Vehicle[]> {
   const ds = await getParkingDataSource();
   const rows = (await ds.manager.query(`
     SELECT
@@ -1070,4 +1212,8 @@ export async function getParkingVehicles(): Promise<Vehicle[]> {
       updatedAt: row.updatedAt.toISOString(),
     };
   });
+}
+
+export async function getParkingVehicles(): Promise<Vehicle[]> {
+  return cacheJson(PARKING_CACHE_KEYS.vehicles, 30, loadParkingVehicles);
 }

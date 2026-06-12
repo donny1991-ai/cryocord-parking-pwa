@@ -11,6 +11,14 @@ import type { Visit } from "@/lib/types";
 
 type Filter = "all" | (typeof STATUSES)[number];
 
+function sanitiseVisitSearchQuery(value: string) {
+  return normalisePlate(value);
+}
+
+function includesText(value: string | undefined, query: string) {
+  return value?.toUpperCase().includes(query) ?? false;
+}
+
 export function VisitsList({ visits, nowIso }: { visits: Visit[]; nowIso: string }) {
   const all = visits;
   const now = useMemo(() => new Date(nowIso), [nowIso]);
@@ -18,17 +26,20 @@ export function VisitsList({ visits, nowIso }: { visits: Visit[]; nowIso: string
   const [filter, setFilter] = useState<Filter>("all");
 
   const filtered = useMemo(() => {
-    const q = normalisePlate(query);
+    const q = sanitiseVisitSearchQuery(query);
+    const textQuery = query.trim().toUpperCase();
     return all.filter((v) => {
       if (filter !== "all" && v.status !== filter) return false;
       if (!q) return true;
-      const additionalMatch = (v.additionalPlates ?? []).some((plate) => normalisePlate(plate).includes(q));
-      const vehicleMatch = (v.vehicles ?? []).some((vehicle) => normalisePlate(vehicle.plate).includes(q));
+
+      const rowPlateMatch = normalisePlate(v.plate).includes(q);
+      const activePlateMatch = v.activeVehicleNumber ? normalisePlate(v.activeVehicleNumber).includes(q) : false;
       return (
-        additionalMatch ||
-        vehicleMatch ||
-        normalisePlate(v.plate).includes(q) ||
-        v.visitorName.toUpperCase().includes(query.toUpperCase())
+        rowPlateMatch ||
+        activePlateMatch ||
+        includesText(v.visitorName, textQuery) ||
+        includesText(v.visitorContact, textQuery) ||
+        includesText(v.organisation, textQuery)
       );
     });
   }, [all, query, filter]);

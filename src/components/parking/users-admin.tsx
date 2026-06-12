@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 import type { ParkingAdminUser } from "@/lib/server/admin-users";
 import type { ParkingUserRole } from "@/db/entities";
 
-const ROLE_OPTIONS = ["guard", "supervisor", "admin"] as const satisfies readonly ParkingUserRole[];
+const ROLE_OPTIONS = ["guard", "admin"] as const satisfies readonly ParkingUserRole[];
 const ADMIN_REQUEST_TIMEOUT_MS = 15_000;
 
 type UserFormState = {

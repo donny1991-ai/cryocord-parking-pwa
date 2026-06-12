@@ -1,1 +1,1 @@
-export const PASS_IMAGE_VERSION = "fontless-v1";
+export const PASS_IMAGE_VERSION = "geist-native-v2";

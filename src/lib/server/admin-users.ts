@@ -5,7 +5,7 @@ import { ParkingUserSchema, type ParkingUserRole } from "@/db/entities";
 import { getParkingDataSource } from "@/db/client";
 import { AuthError, type AuthenticatedParkingUser } from "@/lib/server/auth";
 
-export const PARKING_USER_ROLES = ["guard", "supervisor", "admin"] as const satisfies readonly ParkingUserRole[];
+export const PARKING_USER_ROLES = ["guard", "admin"] as const satisfies readonly ParkingUserRole[];
 
 export interface ParkingAdminUser {
   id: string;
@@ -92,7 +92,7 @@ function assertRole(value: unknown): ParkingUserRole {
     return value as ParkingUserRole;
   }
 
-  throw new AuthError("Role must be guard, supervisor, or admin.", 400);
+  throw new AuthError("Role must be guard or admin.", 400);
 }
 
 function assertActive(value: unknown) {

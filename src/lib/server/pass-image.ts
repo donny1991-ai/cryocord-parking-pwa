@@ -20,6 +20,12 @@ const TEMPLATE_HEIGHT = 1492;
 const QR_X = 321;
 const QR_Y = 495;
 const QR_SIZE = 414;
+const DETAILS_X = 232;
+const DETAILS_Y = 955;
+const DETAILS_WIDTH = 590;
+const DETAILS_HEIGHT = 220;
+const DETAILS_CENTER_X = DETAILS_X + DETAILS_WIDTH / 2;
+const TEXT_FONT_PATH = join(process.cwd(), "node_modules/next/dist/compiled/@vercel/og/Geist-Regular.ttf");
 
 let templateBuffer: Buffer | null = null;
 
@@ -43,90 +49,6 @@ function truncateForSvg(value: string, maxLength = 48) {
   return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
 }
 
-const PIXEL_GLYPHS: Record<string, string[]> = {
-  " ": ["00000", "00000", "00000", "00000", "00000", "00000", "00000"],
-  "0": ["01110", "10001", "10011", "10101", "11001", "10001", "01110"],
-  "1": ["00100", "01100", "00100", "00100", "00100", "00100", "01110"],
-  "2": ["01110", "10001", "00001", "00010", "00100", "01000", "11111"],
-  "3": ["11110", "00001", "00001", "01110", "00001", "00001", "11110"],
-  "4": ["00010", "00110", "01010", "10010", "11111", "00010", "00010"],
-  "5": ["11111", "10000", "10000", "11110", "00001", "00001", "11110"],
-  "6": ["01110", "10000", "10000", "11110", "10001", "10001", "01110"],
-  "7": ["11111", "00001", "00010", "00100", "01000", "01000", "01000"],
-  "8": ["01110", "10001", "10001", "01110", "10001", "10001", "01110"],
-  "9": ["01110", "10001", "10001", "01111", "00001", "00001", "01110"],
-  A: ["01110", "10001", "10001", "11111", "10001", "10001", "10001"],
-  B: ["11110", "10001", "10001", "11110", "10001", "10001", "11110"],
-  C: ["01111", "10000", "10000", "10000", "10000", "10000", "01111"],
-  D: ["11110", "10001", "10001", "10001", "10001", "10001", "11110"],
-  E: ["11111", "10000", "10000", "11110", "10000", "10000", "11111"],
-  F: ["11111", "10000", "10000", "11110", "10000", "10000", "10000"],
-  G: ["01111", "10000", "10000", "10011", "10001", "10001", "01111"],
-  H: ["10001", "10001", "10001", "11111", "10001", "10001", "10001"],
-  I: ["11111", "00100", "00100", "00100", "00100", "00100", "11111"],
-  J: ["00111", "00010", "00010", "00010", "00010", "10010", "01100"],
-  K: ["10001", "10010", "10100", "11000", "10100", "10010", "10001"],
-  L: ["10000", "10000", "10000", "10000", "10000", "10000", "11111"],
-  M: ["10001", "11011", "10101", "10101", "10001", "10001", "10001"],
-  N: ["10001", "11001", "10101", "10011", "10001", "10001", "10001"],
-  O: ["01110", "10001", "10001", "10001", "10001", "10001", "01110"],
-  P: ["11110", "10001", "10001", "11110", "10000", "10000", "10000"],
-  Q: ["01110", "10001", "10001", "10001", "10101", "10010", "01101"],
-  R: ["11110", "10001", "10001", "11110", "10100", "10010", "10001"],
-  S: ["01111", "10000", "10000", "01110", "00001", "00001", "11110"],
-  T: ["11111", "00100", "00100", "00100", "00100", "00100", "00100"],
-  U: ["10001", "10001", "10001", "10001", "10001", "10001", "01110"],
-  V: ["10001", "10001", "10001", "10001", "10001", "01010", "00100"],
-  W: ["10001", "10001", "10001", "10101", "10101", "10101", "01010"],
-  X: ["10001", "10001", "01010", "00100", "01010", "10001", "10001"],
-  Y: ["10001", "10001", "01010", "00100", "00100", "00100", "00100"],
-  Z: ["11111", "00001", "00010", "00100", "01000", "10000", "11111"],
-  ":": ["00000", "00100", "00100", "00000", "00100", "00100", "00000"],
-  ".": ["00000", "00000", "00000", "00000", "00000", "01100", "01100"],
-  ",": ["00000", "00000", "00000", "00000", "00100", "00100", "01000"],
-  "-": ["00000", "00000", "00000", "11111", "00000", "00000", "00000"],
-  "/": ["00001", "00010", "00010", "00100", "01000", "01000", "10000"],
-  "'": ["00100", "00100", "01000", "00000", "00000", "00000", "00000"],
-  "&": ["01100", "10010", "10100", "01000", "10101", "10010", "01101"],
-  "+": ["00000", "00100", "00100", "11111", "00100", "00100", "00000"],
-  "?": ["01110", "10001", "00001", "00010", "00100", "00000", "00100"],
-};
-
-function normalisePixelText(value: string) {
-  return value
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase()
-    .replace(/[^ A-Z0-9:.,\-/'&+]/g, "?");
-}
-
-function renderPixelTextLine(line: string, centerX: number, topY: number, maxWidth: number, maxScale: number) {
-  const text = normalisePixelText(truncateForSvg(line, 42));
-  const glyphColumns = 5;
-  const glyphRows = 7;
-  const glyphGap = 1;
-  const totalColumns = Math.max(1, text.length * (glyphColumns + glyphGap) - glyphGap);
-  const scale = Math.min(maxScale, maxWidth / totalColumns);
-  const startX = centerX - (totalColumns * scale) / 2;
-  const rects: string[] = [];
-
-  Array.from(text).forEach((character, characterIndex) => {
-    const glyph = PIXEL_GLYPHS[character] ?? PIXEL_GLYPHS["?"];
-    const glyphX = startX + characterIndex * (glyphColumns + glyphGap) * scale;
-
-    glyph.forEach((row, rowIndex) => {
-      Array.from(row).forEach((pixel, columnIndex) => {
-        if (pixel !== "1") return;
-        rects.push(
-          `<rect x="${(glyphX + columnIndex * scale).toFixed(2)}" y="${(topY + rowIndex * scale).toFixed(2)}" width="${scale.toFixed(2)}" height="${scale.toFixed(2)}" fill="#080808"/>`,
-        );
-      });
-    });
-  });
-
-  return `<g aria-label="${escapeSvg(line)}">${rects.join("")}</g>`;
-}
-
 async function renderQrSvg(token: string) {
   return QRCode.toString(token, {
     type: "svg",
@@ -140,35 +62,90 @@ async function renderQrSvg(token: string) {
   });
 }
 
-function renderDetailsSvg(details: VisitorPassImageDetails) {
-  const lines = [
+export function linkedVehicleSummary(additionalPlates: string[] | undefined) {
+  const count = additionalPlates?.length ?? 0;
+  if (count === 0) return null;
+  return `+${count} vehicle${count === 1 ? "" : "s"}`;
+}
+
+function detailLines(details: VisitorPassImageDetails) {
+  const linked = linkedVehicleSummary(details.additionalPlates);
+  return [
     `Vehicle: ${details.plate}`,
-    ...(details.additionalPlates?.length ? [`Linked: ${details.additionalPlates.join(", ")}`] : []),
+    linked ? `Linked: ${linked}` : null,
     `Visitor: ${details.visitorName}`,
     `Type: ${details.visitTypeLabel}`,
     `Visit date: ${details.visitDate}`,
     `Valid until: ${details.validUntil}`,
-  ];
-  const lineGap = lines.length > 5 ? 32 : 38;
-  const firstLineY = lines.length > 5 ? 978 : 986;
-  const maxScale = lines.length > 5 ? 4.1 : 4.5;
+  ].filter((line): line is string => Boolean(line));
+}
 
-  return `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${TEMPLATE_WIDTH}" height="${TEMPLATE_HEIGHT}" viewBox="0 0 ${TEMPLATE_WIDTH} ${TEMPLATE_HEIGHT}">
-      <rect x="232" y="955" width="590" height="220" fill="#FFFFFF"/>
-      ${lines
-        .map((line, index) => (
-          renderPixelTextLine(line, 527, firstLineY + index * lineGap, 560, maxScale)
-        ))
-        .join("")}
-    </svg>
-  `;
+function formatDetailLine(line: string) {
+  const [label, ...rest] = line.split(":");
+  const value = rest.join(":").trim();
+  if (!value) return escapeSvg(truncateForSvg(line, 42));
+
+  return [
+    `<span foreground="#6B7280">${escapeSvg(`${label.toUpperCase()}:`)}</span>`,
+    `<span foreground="#111827">${escapeSvg(truncateForSvg(value, 34))}</span>`,
+  ].join("  ");
+}
+
+function ensureFontConfigCache() {
+  process.env.XDG_CACHE_HOME ||= "/tmp";
+}
+
+async function renderDetailTextLine(line: string) {
+  ensureFontConfigCache();
+  const text = await sharp({
+    text: {
+      text: formatDetailLine(line),
+      font: "Geist 31",
+      fontfile: TEXT_FONT_PATH,
+      width: 560,
+      align: "center",
+      rgba: true,
+      wrap: "none",
+    },
+  })
+    .png()
+    .toBuffer();
+  const metadata = await sharp(text).metadata();
+  return {
+    input: text,
+    width: metadata.width ?? 0,
+    height: metadata.height ?? 0,
+  };
+}
+
+async function renderDetailTextComposites(details: VisitorPassImageDetails) {
+  const lines = [
+    {
+      input: Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${TEMPLATE_WIDTH}" height="${TEMPLATE_HEIGHT}"><rect x="${DETAILS_X}" y="${DETAILS_Y}" width="${DETAILS_WIDTH}" height="${DETAILS_HEIGHT}" fill="#FFFFFF"/></svg>`,
+      ),
+      left: 0,
+      top: 0,
+    },
+  ];
+  const renderedLines = await Promise.all(detailLines(details).map(renderDetailTextLine));
+  const lineGap = renderedLines.length > 5 ? 35 : 40;
+  const firstCenterY = renderedLines.length > 5 ? 988 : 1001;
+
+  return [
+    ...lines,
+    ...renderedLines.map((line, index) => ({
+      input: line.input,
+      left: Math.round(DETAILS_CENTER_X - line.width / 2),
+      top: Math.round(firstCenterY + index * lineGap - line.height / 2),
+    })),
+  ];
 }
 
 export async function renderVisitorPassImagePng(details: VisitorPassImageDetails) {
   const template = await getTemplateBuffer();
   const qrSvg = await renderQrSvg(details.token);
-  const detailsSvg = renderDetailsSvg(details);
+  const detailComposites = await renderDetailTextComposites(details);
 
   return sharp(template)
     .composite([
@@ -182,11 +159,7 @@ export async function renderVisitorPassImagePng(details: VisitorPassImageDetails
         left: QR_X,
         top: QR_Y,
       },
-      {
-        input: Buffer.from(detailsSvg),
-        left: 0,
-        top: 0,
-      },
+      ...detailComposites,
     ])
     .png()
     .toBuffer();

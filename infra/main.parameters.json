@@ -20,6 +20,9 @@
     "databaseSslRejectUnauthorized": {
       "value": "${DATABASE_SSL_REJECT_UNAUTHORIZED=true}"
     },
+    "databasePoolMax": {
+      "value": "${DATABASE_POOL_MAX=3}"
+    },
     "parkingQrKeyId": {
       "value": "${PARKING_QR_KEY_ID=prod}"
     },
@@ -59,6 +62,12 @@
     "smtpPass": {
       "value": "${SMTP_PASS=}"
     },
+    "redisUrl": {
+      "value": "${CACHE_REDIS_URL=}"
+    },
+    "redisKeyPrefix": {
+      "value": "${CACHE_REDIS_KEY_PREFIX=cryocord-parking:}"
+    },
     "smtpSecure": {
       "value": "${SMTP_SECURE=true}"
     },
@@ -67,6 +76,21 @@
     },
     "smtpEhloDomain": {
       "value": "${SMTP_EHLO_DOMAIN=cryocord-parking.azurecontainerapps.io}"
+    },
+    "minReplicas": {
+      "value": "${CONTAINER_APP_MIN_REPLICAS=1}"
+    },
+    "maxReplicas": {
+      "value": "${CONTAINER_APP_MAX_REPLICAS=5}"
+    },
+    "cpuCores": {
+      "value": "${CONTAINER_APP_CPU_CORES=1.0}"
+    },
+    "memory": {
+      "value": "${CONTAINER_APP_MEMORY=2Gi}"
+    },
+    "httpScaleConcurrentRequests": {
+      "value": "${CONTAINER_APP_HTTP_SCALE_CONCURRENT_REQUESTS=25}"
     }
   }
 }

@@ -1516,7 +1516,7 @@ describe("visitor pass database flow", () => {
   });
 
   it("scans visitor passes through the authenticated endpoint and records the authenticated guard", async () => {
-    const guard = await seedParkingUser(AppDataSource.manager, { role: "supervisor" });
+    const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
     const token = await signTestSupabaseAccessToken(guard.id);
     const issuedResponse = await createVisitorEndpoint(
       jsonRequest("/api/visitors", createVisitorInputFactory({ typeCode: "visitor" }), token),

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { authErrorResponse, requireParkingUser } from "@/lib/server/auth";
+import { invalidateParkingReadModelCache } from "@/lib/server/parking-cache";
 import { convertVisitorRequest, rejectVisitorRequest } from "@/lib/server/visitor-requests";
 
 export const runtime = "nodejs";
@@ -53,6 +54,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       },
       actor,
     );
+    await invalidateParkingReadModelCache();
     revalidateRequestPages(result.issued.visitor.id);
     return NextResponse.json(result);
   } catch (error) {

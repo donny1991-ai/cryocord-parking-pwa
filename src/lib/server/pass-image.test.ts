@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { renderVisitorPassImagePng, visitorPassImageFilename } from "./pass-image";
+import { linkedVehicleSummary, renderVisitorPassImagePng, visitorPassImageFilename } from "./pass-image";
 
 describe("visitor pass image renderer", () => {
   it("renders a PNG with the visitor pass template dimensions", async () => {
@@ -30,5 +30,12 @@ describe("visitor pass image renderer", () => {
     }
     expect(darkPixelCount).toBeGreaterThan(1_000);
     expect(visitorPassImageFilename("WA 18 K")).toBe("cryocord-pass-wa-18-k.png");
+  });
+
+  it("summarises linked vehicles without listing plate numbers", () => {
+    expect(linkedVehicleSummary(undefined)).toBeNull();
+    expect(linkedVehicleSummary([])).toBeNull();
+    expect(linkedVehicleSummary(["AHA 456"])).toBe("+1 vehicle");
+    expect(linkedVehicleSummary(["AHA 456", "WWW 199"])).toBe("+2 vehicles");
   });
 });

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { authErrorResponse, requireParkingUser } from "@/lib/server/auth";
+import { invalidateParkingReadModelCache } from "@/lib/server/parking-cache";
 import { updateVisitorHost } from "@/lib/server/admin-visitors";
 
 export const runtime = "nodejs";
@@ -11,6 +12,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const { id } = await params;
     const body = await request.json();
     const visitor = await updateVisitorHost(id, body, actor);
+    await invalidateParkingReadModelCache();
     revalidateVisitorPages(id);
     return NextResponse.json({ visitor });
   } catch (error) {

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { authErrorResponse, requireParkingUser } from "@/lib/server/auth";
+import { invalidateParkingReadModelCache } from "@/lib/server/parking-cache";
 import {
   assertVisitorTypeCode,
   assertPurpose,
@@ -153,12 +154,14 @@ export async function POST(request: NextRequest) {
 
     if (body.action === "review") {
       const visitor = await reviewVisitorPass({ token, guardId: actor.id });
+      await invalidateParkingReadModelCache();
       revalidateParkingPages(visitor.id);
       return NextResponse.json({ visitor });
     }
 
     if (body.action === "review_exit") {
       const visitor = await reviewVisitorPassForExit({ token, guardId: actor.id });
+      await invalidateParkingReadModelCache();
       revalidateParkingPages(visitor.id);
       return NextResponse.json({ visitor });
     }
@@ -174,6 +177,7 @@ export async function POST(request: NextRequest) {
         vehicleNumber: typeof body.vehicleNumber === "string" ? body.vehicleNumber.trim() : undefined,
         reason,
       });
+      await invalidateParkingReadModelCache();
       revalidateParkingPages(visitor.id);
       return NextResponse.json({ visitor });
     }
@@ -186,6 +190,7 @@ export async function POST(request: NextRequest) {
       guardId: actor.id,
       details: parseVisitorDetails(body.visitor),
     });
+    await invalidateParkingReadModelCache();
     revalidateParkingPages(visitor.id);
     return NextResponse.json({ visitor });
   } catch (error) {

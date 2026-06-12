@@ -17,7 +17,7 @@ export default async function EntryPage({
 
   return (
     <div>
-      <PageHeader title="Gate Entry" subtitle="Scan a plate for new entry or scan a visitor QR for arrival" backHref="/parking" />
+      <PageHeader title="Gate Entry" subtitle="Manual plate entry or visitor QR arrival" backHref="/parking" />
       <EntryWorkflow employees={employees} vehicles={vehicles} initialMode={initialMode} />
     </div>
   );
