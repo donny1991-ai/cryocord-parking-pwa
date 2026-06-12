@@ -2,13 +2,14 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { BadgeCheck, Ban, CarFront, Check, CheckCircle2, Keyboard, MessageCircle, Pencil, Plus, Search, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
+import { BadgeCheck, Ban, Check, CheckCircle2, MessageCircle, Pencil, Plus, Search, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Field, Textarea } from "@/components/ui/input";
 import { Chip } from "@/components/ui/badge";
 import { QrPass } from "./qr-pass";
 import { QrPassShareButton } from "./qr-pass-share-button";
+import { PlateCapture } from "./plate-capture";
 import { VISIT_TYPES, PURPOSES, type VisitType, type Purpose } from "@/lib/enums";
 import { labelize } from "@/lib/labels";
 import { cn, formatDateTime, normalisePlate } from "@/lib/utils";
@@ -248,7 +249,7 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
     return (
       <div className="space-y-4">
         <StepDots step={1} />
-        <ManualPlateEntry onPlate={selectPlate} />
+        <PlateCapture onPlate={selectPlate} />
       </div>
     );
   }
@@ -746,64 +747,6 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
         {issuing ? "Logging..." : "Log Entry & Issue Pass"}
       </Button>
     </div>
-  );
-}
-
-function ManualPlateEntry({ onPlate }: { onPlate: (plate: string) => void }) {
-  const [manual, setManual] = useState("");
-  const normalised = normalisePlate(manual);
-  const canUse = normalised.length >= 3;
-
-  function submit() {
-    if (!canUse) return;
-    onPlate(normalised);
-  }
-
-  return (
-    <GlassCard padding="lg" className="space-y-4">
-      <div className="flex items-start gap-3">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand/10 text-brand ring-1 ring-brand/15">
-          <CarFront className="h-5 w-5" />
-        </span>
-        <div className="min-w-0">
-          <h2 className="text-lg font-bold leading-tight text-ink">Manual vehicle entry</h2>
-          <p className="mt-1 text-sm leading-relaxed text-ink-faint">
-            Type the visitor plate, then complete the guard registration details.
-          </p>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <Input
-          value={manual}
-          onChange={(event) => setManual(event.target.value.toUpperCase())}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") submit();
-          }}
-          placeholder="e.g. WA 18 K"
-          inputMode="text"
-          autoCapitalize="characters"
-          className="h-14 text-lg font-bold tracking-wide"
-          aria-label="Vehicle plate"
-          autoFocus
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="lg"
-          className="h-14 shrink-0 bg-white/55"
-          disabled={!canUse}
-          onClick={submit}
-        >
-          <Keyboard className="h-5 w-5" />
-          Use
-        </Button>
-      </div>
-
-      <p className="rounded-2xl bg-white/45 px-3 py-2 text-xs font-medium leading-relaxed text-ink-faint">
-        Use this when the visitor cannot open the public registration form or show a QR pass.
-      </p>
-    </GlassCard>
   );
 }
 

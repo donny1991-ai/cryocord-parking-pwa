@@ -28,7 +28,7 @@ export function EntryWorkflow({
           active={mode === "plate"}
           icon={CarFront}
           title="Plate entry"
-          subtitle="Manual entry and pass"
+          subtitle="Scan plate and issue pass"
           onClick={() => setMode("plate")}
         />
         <ModeButton

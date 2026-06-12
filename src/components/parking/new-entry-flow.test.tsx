@@ -2,19 +2,46 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NewEntryFlow } from "./new-entry-flow";
 
+const cameraMocks = vi.hoisted(() => ({
+  supported: false,
+  getCameraStream: vi.fn(),
+  stopStream: vi.fn(),
+}));
+
+vi.mock("@/lib/camera", () => ({
+  checkCameraSupport: () =>
+    cameraMocks.supported
+      ? { ok: true }
+      : {
+          ok: false,
+          reason: "unsupported",
+          message: "This browser does not expose camera access.",
+        },
+  describeCameraError: () => "Could not start the camera.",
+  getCameraStream: cameraMocks.getCameraStream,
+  stopStream: cameraMocks.stopStream,
+}));
+
 describe("NewEntryFlow", () => {
   afterEach(() => {
+    cameraMocks.supported = false;
+    cameraMocks.getCameraStream.mockReset();
+    cameraMocks.stopStream.mockReset();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
-  it("starts with manual plate entry instead of camera capture", () => {
+  it("starts with plate camera capture and keeps manual entry available", async () => {
+    cameraMocks.supported = true;
+    cameraMocks.getCameraStream.mockResolvedValue({ getTracks: () => [] });
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+
     render(<NewEntryFlow employees={[]} vehicles={[]} />);
 
-    expect(screen.getByText("Manual vehicle entry")).toBeInTheDocument();
-    expect(screen.getByLabelText("Vehicle plate")).toHaveAttribute("placeholder", "e.g. WA 18 K");
+    expect(await screen.findByRole("button", { name: /Capture & read plate/i })).toBeInTheDocument();
+    expect(screen.queryByText("Manual vehicle entry")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("e.g. WA 18 K")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Use/i })).toBeDisabled();
-    expect(screen.queryByRole("button", { name: /Capture & read plate/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Retry camera/i)).not.toBeInTheDocument();
   });
 
   it("submits optional visit time, visitor count, and remarks", async () => {
