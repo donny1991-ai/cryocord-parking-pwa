@@ -12,6 +12,46 @@ Follow it before calling any task finished.
 - Do not edit `.env` into commits. `.env` is ignored and can contain real secrets.
 - Prefer scoped, repo-patterned changes. Do not rewrite unrelated files.
 
+## Code Standards
+
+Follow SOLID, KISS, and DRY principles for backend and frontend work, while
+protecting existing behavior.
+
+Backend expectations:
+
+- Keep server helpers, API routes, entities, migrations, and seeders focused on
+  one responsibility. Prefer small functions with explicit inputs and outputs.
+- Reuse existing server helpers, validation logic, entities, enums, cache keys,
+  and TypeORM patterns before adding new abstractions.
+- Keep business rules configurable and data-backed when they are likely to
+  change, but avoid over-engineering simple one-off behavior.
+- Validate inputs at boundaries, fail closed for auth/security-sensitive paths,
+  and keep database access parameterized.
+- Avoid duplicated SQL, duplicated enum lists, and duplicated data-mapping logic;
+  extract shared helpers only when reuse is real and improves readability.
+
+Frontend expectations:
+
+- Keep components focused and composable. Split UI only when it reduces actual
+  complexity or matches an existing component pattern.
+- Reuse existing design system components, labels, option lists, formatting
+  helpers, and form patterns before introducing new UI conventions.
+- Keep interaction logic simple and predictable. Avoid hidden side effects that
+  make forms, scans, or navigation hard to reason about.
+- Prefer derived state over duplicated state when practical, and keep form state
+  explicit when it improves validation or user feedback.
+- Maintain mobile-safe layouts and accessible controls while preserving the
+  current user workflows.
+
+Change-safety expectations:
+
+- Make the smallest coherent change that satisfies the request.
+- Do not refactor unrelated code just to improve style.
+- Add or update focused tests when behavior changes, especially for validation,
+  business rules, API behavior, and user-facing flows.
+- Before finishing, verify that the change does not break existing behavior with
+  the relevant checklist commands below.
+
 ## Unit Tests
 
 Run unit tests for local component, helper, parser, validation, and config changes:

@@ -7,6 +7,7 @@ export const PARKING_CACHE_KEYS = {
   vehicles: "parking:vehicles:v1",
   hosts: "parking:hosts:v1",
   settings: "parking:settings:v1",
+  adminOptions: "parking:admin-options:v1",
 } as const;
 
 export async function invalidateParkingReadModelCache() {
@@ -18,5 +19,5 @@ export async function invalidateVehicleReadModelCache() {
 }
 
 export async function invalidateSettingsReadModelCache() {
-  await deleteCacheKeys([PARKING_CACHE_KEYS.snapshot, PARKING_CACHE_KEYS.settings]);
+  await deleteCacheKeys([PARKING_CACHE_KEYS.snapshot, PARKING_CACHE_KEYS.settings, PARKING_CACHE_KEYS.adminOptions]);
 }

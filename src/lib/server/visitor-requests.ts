@@ -4,8 +4,8 @@ import type { VisitorRequestEntity, VisitorRequestStatus } from "@/db/entities";
 import { getParkingDataSource } from "@/db/client";
 import { type AuthenticatedParkingUser } from "@/lib/server/auth";
 import { getHostByStaffId } from "@/lib/server/hosts";
-import { assertPurpose, createVisitorPass, normaliseVisitorCount, type IssuedVisitorPass } from "@/lib/server/visitors";
-import type { IdentityType } from "@/lib/server/visitors";
+import { assertPurpose, assertVisitorTypeCode, createVisitorPass, normaliseVisitorCount, visitTypeRequiresHost, type IssuedVisitorPass } from "@/lib/server/visitors";
+import type { IdentityType, VisitorTypeCode } from "@/lib/server/visitors";
 import type { Purpose } from "@/lib/enums";
 import type { VisitorRequest } from "@/lib/types";
 import { normalisePlate } from "@/lib/utils";
@@ -14,14 +14,16 @@ export interface PublicVisitorRequestInput {
   name: string;
   phoneNumber: string;
   organisation?: string;
+  representingOrganisation?: string;
   identityType?: IdentityType;
   nric?: string | null;
   passportNumber?: string | null;
   vehicleNumber: string;
+  typeCode?: VisitorTypeCode;
   purpose?: Purpose;
   visitorCount?: number | string | null;
   otherVisitorNames?: string[];
-  requestedHostText: string;
+  requestedHostText?: string;
   remarks?: string;
 }
 
@@ -131,6 +133,7 @@ function toDto(request: VisitorRequestEntity): VisitorRequestDto {
     name: request.name,
     phoneNumber: request.phoneNumber,
     organisation: request.organisation ?? undefined,
+    representingOrganisation: request.representingOrganisation ?? undefined,
     identityType: request.identityType,
     nric: request.nric ?? undefined,
     passportNumber: request.passportNumber ?? undefined,
@@ -151,6 +154,7 @@ function toDto(request: VisitorRequestEntity): VisitorRequestDto {
 }
 
 function withRequestedHostRemark(remarks: string | null, requestedHostText: string) {
+  if (!requestedHostText) return remarks;
   const requestedHostRemark = `Requested host: ${requestedHostText}`;
   return remarks ? `${requestedHostRemark}\n\n${remarks}` : requestedHostRemark;
 }
@@ -159,16 +163,21 @@ export async function createPublicVisitorRequest(input: PublicVisitorRequestInpu
   const name = cleanText(input.name);
   const phoneNumber = cleanText(input.phoneNumber);
   const organisation = cleanOptionalText(input.organisation);
+  const representingOrganisation = cleanOptionalText(input.representingOrganisation);
   const vehicleNumber = cleanText(input.vehicleNumber).toUpperCase();
   const requestedHostText = cleanText(input.requestedHostText);
   const remarks = cleanOptionalText(input.remarks);
   const visitorCount = normaliseVisitorCount(input.visitorCount);
   const otherVisitorNames = parseOtherVisitorNames(input.otherVisitorNames);
   const purpose = assertPurpose(input.purpose ?? "meeting");
+  const typeCode = assertVisitorTypeCode(input.typeCode ?? "visitor");
+  const hostRequired = visitTypeRequiresHost(typeCode);
   const identity = normaliseIdentity(input);
 
-  if (!name || !phoneNumber || !vehicleNumber || !requestedHostText) {
-    throw new Error("Name, phone number, vehicle number, and host are required.");
+  if (!name || !phoneNumber || !vehicleNumber || (hostRequired && !requestedHostText)) {
+    throw new Error(hostRequired
+      ? "Name, phone number, vehicle number, and host are required."
+      : "Name, phone number, and vehicle number are required.");
   }
   if (normalisePlate(vehicleNumber).length < 3) {
     throw new Error("Vehicle number must contain at least 3 letters or digits.");
@@ -177,6 +186,7 @@ export async function createPublicVisitorRequest(input: PublicVisitorRequestInpu
   assertLength(name, 160, "Name");
   assertLength(phoneNumber, 40, "Phone number");
   assertLength(organisation, 160, "Organisation");
+  assertLength(representingOrganisation, 160, "Company represented");
   assertLength(vehicleNumber, 32, "Vehicle number");
   assertLength(requestedHostText, 160, "Host");
   assertLength(remarks, 2000, "Remarks");
@@ -185,15 +195,16 @@ export async function createPublicVisitorRequest(input: PublicVisitorRequestInpu
     name,
     phoneNumber,
     organisation: organisation ?? undefined,
+    representingOrganisation: representingOrganisation ?? undefined,
     identityType: identity.identityType,
     nric: identity.nric,
     passportNumber: identity.passportNumber,
     vehicleNumber,
-    typeCode: "visitor",
+    typeCode,
     purpose,
     visitorCount,
     otherVisitorNames,
-    remarks: withRequestedHostRemark(remarks, requestedHostText),
+    remarks: withRequestedHostRemark(remarks, requestedHostText) ?? undefined,
     checkInOnCreate: false,
   });
 
@@ -226,6 +237,7 @@ export async function convertVisitorRequest(
     name: request.name,
     phoneNumber: request.phoneNumber,
     organisation: request.organisation ?? undefined,
+    representingOrganisation: request.representingOrganisation ?? undefined,
     identityType: request.identityType,
     nric: request.nric,
     passportNumber: request.passportNumber,

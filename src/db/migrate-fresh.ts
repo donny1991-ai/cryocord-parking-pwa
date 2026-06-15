@@ -3,6 +3,7 @@ import { AppDataSource } from "./data-source";
 import { freshParkingDatabase } from "./parking-fresh";
 import { freshParkingStorageObjects } from "./parking-storage-fresh";
 import { seedStarterAdmin } from "./seeders/auth-user.seeder";
+import { seedCompanies } from "./seeders/company.seeder";
 import { seedDemoJourney } from "./seeders/demo-journey.seeder";
 
 function getTargetDatabaseUrl() {
@@ -60,6 +61,8 @@ async function main() {
   if (shouldSeed) {
     const admin = await seedStarterAdmin(AppDataSource.manager);
     console.log(`Seeded parking admin: ${admin.name} (${admin.role})`);
+    const companies = await seedCompanies(AppDataSource.manager);
+    console.log(`Seeded companies: ${companies.map((company) => company.name).join(", ")}`);
   }
 
   if (shouldSeedDemo) {

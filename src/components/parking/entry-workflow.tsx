@@ -4,6 +4,7 @@ import { useState } from "react";
 import { CarFront, QrCode } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
 import type { Vehicle, Employee } from "@/lib/types";
+import type { ParkingAdminOptions } from "@/lib/server/admin-options";
 import { cn } from "@/lib/utils";
 import { ArrivalScanFlow } from "./arrival-scan-flow";
 import { NewEntryFlow } from "./new-entry-flow";
@@ -13,10 +14,12 @@ type EntryMode = "plate" | "qr";
 export function EntryWorkflow({
   employees,
   vehicles,
-  initialMode = "plate",
+  options,
+  initialMode = "qr",
 }: {
   employees: Employee[];
   vehicles: Vehicle[];
+  options?: ParkingAdminOptions;
   initialMode?: EntryMode;
 }) {
   const [mode, setMode] = useState<EntryMode>(initialMode);
@@ -41,9 +44,9 @@ export function EntryWorkflow({
       </GlassCard>
 
       {mode === "plate" ? (
-        <NewEntryFlow employees={employees} vehicles={vehicles} />
+        <NewEntryFlow employees={employees} vehicles={vehicles} options={options} />
       ) : (
-        <ArrivalScanFlow employees={employees} />
+        <ArrivalScanFlow employees={employees} options={options} />
       )}
     </div>
   );

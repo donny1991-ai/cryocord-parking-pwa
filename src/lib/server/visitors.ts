@@ -1,5 +1,5 @@
 import "server-only";
-import { VehicleSchema, VisitorScanEventSchema, VisitorSchema, VisitorTypeSchema, VisitorVehicleSchema } from "@/db/entities";
+import { VehicleSchema, VisitPurposeSchema, VisitorScanEventSchema, VisitorSchema, VisitorTypeSchema, VisitorVehicleSchema } from "@/db/entities";
 import type { VisitorEntity, VisitorStatus, VisitorVehicleEntity, VisitorVehicleStatus } from "@/db/entities";
 import { getParkingDataSource } from "@/db/client";
 import { PURPOSES, type Purpose } from "@/lib/enums";
@@ -15,19 +15,12 @@ import {
   type PassClaims,
 } from "@/lib/qr";
 import { normalisePlate } from "@/lib/utils";
+import { visitTypeRequiresHost } from "@/lib/visit-rules";
 import { assertScanAction, type ScanAction } from "./visitor-state";
 import { In, type EntityManager } from "typeorm";
 import { decodeProtectedHeader } from "jose";
 
-export type VisitorTypeCode =
-  | "visitor"
-  | "vendor"
-  | "courier"
-  | "patient"
-  | "staff"
-  | "contractor"
-  | "vip"
-  | "other";
+export type VisitorTypeCode = string;
 export type IdentityType = "nric" | "passport";
 export type { ScanAction } from "./visitor-state";
 
@@ -44,6 +37,7 @@ export interface CreateVisitorInput {
   name: string;
   phoneNumber: string;
   organisation?: string;
+  representingOrganisation?: string;
   identityType?: IdentityType;
   nric?: string | null;
   passportNumber?: string | null;
@@ -98,6 +92,7 @@ export interface VisitorDetailsUpdateInput {
   name?: string;
   phoneNumber?: string;
   organisation?: string | null;
+  representingOrganisation?: string | null;
   identityType?: IdentityType;
   nric?: string | null;
   passportNumber?: string | null;
@@ -119,6 +114,7 @@ export interface VisitorDto {
   name: string;
   phoneNumber: string;
   organisation: string | null;
+  representingOrganisation: string | null;
   identityType: IdentityType | null;
   nric: string | null;
   passportNumber: string | null;
@@ -212,6 +208,7 @@ function toDto(visitor: VisitorEntity): VisitorDto {
     name: visitor.name,
     phoneNumber: visitor.phoneNumber,
     organisation: visitor.organisation,
+    representingOrganisation: visitor.representingOrganisation,
     identityType: visitor.identityType,
     nric: visitor.nric,
     passportNumber: visitor.passportNumber,
@@ -273,9 +270,26 @@ export function assertPurpose(value: unknown): Purpose {
   if (value === undefined || value === null || value === "") {
     return "other";
   }
-  if (typeof value === "string" && (PURPOSES as readonly string[]).includes(value)) {
-    return value as Purpose;
+  if (typeof value === "string" && /^[a-z][a-z0-9_]{1,31}$/.test(value)) {
+    return value;
   }
+  throw new Error("Invalid purpose.");
+}
+
+async function assertConfiguredPurpose(manager: EntityManager, value: unknown): Promise<Purpose> {
+  const purpose = assertPurpose(value);
+  if ((PURPOSES as readonly string[]).includes(purpose)) return purpose;
+
+  try {
+    const configured = await manager.findOneBy(VisitPurposeSchema, { code: purpose });
+    if (configured) return purpose;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("parking.visit_purposes")) {
+      throw new Error("Invalid purpose.");
+    }
+    throw error;
+  }
+
   throw new Error("Invalid purpose.");
 }
 
@@ -805,6 +819,13 @@ async function applyVisitorDetailsUpdate(
     });
   }
 
+  if (details.representingOrganisation !== undefined) {
+    const next = normaliseNullable(details.representingOrganisation);
+    setChangedValue(changes, "representingOrganisation", visitor.representingOrganisation, next, () => {
+      visitor.representingOrganisation = next;
+    });
+  }
+
   if (details.identityType !== undefined || details.nric !== undefined || details.passportNumber !== undefined) {
     const next = normaliseIdentityDocument({
       identityType: details.identityType ?? visitor.identityType,
@@ -861,7 +882,7 @@ async function applyVisitorDetailsUpdate(
   }
 
   if (details.purpose !== undefined) {
-    const next = assertPurpose(details.purpose);
+    const next = await assertConfiguredPurpose(manager, details.purpose);
     setChangedValue(changes, "purpose", visitor.purpose, next, () => {
       visitor.purpose = next;
     });
@@ -977,21 +998,14 @@ export function normaliseVisitorCount(value: unknown): number | null {
 }
 
 export function assertVisitorTypeCode(value: unknown): VisitorTypeCode {
-  if (
-    value === "visitor" ||
-    value === "vendor" ||
-    value === "courier" ||
-    value === "patient" ||
-    value === "staff" ||
-    value === "contractor" ||
-    value === "vip" ||
-    value === "other"
-  ) {
+  if (typeof value === "string" && /^[a-z][a-z0-9_]{1,31}$/.test(value)) {
     return value;
   }
 
   throw new Error("Invalid visitor type.");
 }
+
+export { visitTypeRequiresHost };
 
 export async function createVisitorPass(input: CreateVisitorInput): Promise<IssuedVisitorPass> {
   assertQrSigningConfigured();
@@ -1012,7 +1026,7 @@ export async function createVisitorPass(input: CreateVisitorInput): Promise<Issu
   const visitor = await ds.transaction(async (manager) => {
     const type = await getVisitorTypeByCodeOrThrow(manager, input.typeCode);
     const remarks = input.remarks?.trim() || null;
-    const purpose = assertPurpose(input.purpose);
+    const purpose = await assertConfiguredPurpose(manager, input.purpose);
     const identity = normaliseIdentityDocument({ ...input, required: true });
     const additionalVehicleNumbers = parseAdditionalVehicleNumbers(input.additionalVehicleNumbers, input.vehicleNumber);
     const otherVisitorNames = parseOtherVisitorNames(input.otherVisitorNames);
@@ -1026,6 +1040,7 @@ export async function createVisitorPass(input: CreateVisitorInput): Promise<Issu
       name: input.name.trim(),
       phoneNumber: input.phoneNumber.trim(),
       organisation: input.organisation?.trim() || null,
+      representingOrganisation: input.representingOrganisation?.trim() || null,
       identityType: identity.identityType,
       nric: identity.nric,
       passportNumber: identity.passportNumber,

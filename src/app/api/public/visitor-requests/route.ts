@@ -8,6 +8,7 @@ function isPublicRequestValidationError(message: string) {
   return (
     message.includes("required") ||
     message.includes("must") ||
+    message.includes("Invalid visitor type") ||
     message.includes("Invalid purpose") ||
     message.includes("Number of visitors") ||
     message.includes("Other visitor names") ||

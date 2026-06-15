@@ -13,7 +13,7 @@ vi.mock("./plate-capture", () => ({
 
 describe("EntryWorkflow", () => {
   it("keeps QR arrival available while plate capture is available", () => {
-    render(<EntryWorkflow employees={[]} vehicles={[]} initialMode="qr" />);
+    render(<EntryWorkflow employees={[]} vehicles={[]} />);
 
     expect(screen.getByRole("button", { name: /QR arrival/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /Scan arrival QR/i })).toBeInTheDocument();

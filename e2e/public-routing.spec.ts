@@ -25,13 +25,8 @@ test.describe("public and protected routing", () => {
     await expect(sendCode).toBeDisabled();
 
     await email.click();
-    await email.pressSequentially("guard@cryocord.com.my");
+    await email.pressSequentially("guard@cryocord.com.my", { delay: 5 });
     await expect(email).toHaveValue("guard@cryocord.com.my");
-    if (await sendCode.isDisabled()) {
-      await email.clear();
-      await email.pressSequentially("guard@cryocord.com.my");
-      await expect(email).toHaveValue("guard@cryocord.com.my");
-    }
     await expect(sendCode).toBeEnabled({ timeout: 10000 });
   });
 

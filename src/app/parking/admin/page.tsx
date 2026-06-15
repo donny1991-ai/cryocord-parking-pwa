@@ -79,8 +79,8 @@ export default async function AdminPage() {
                 <Settings className="h-5 w-5 text-brand" />
               </span>
               <div className="flex-1">
-                <p className="font-semibold text-ink">Configuration</p>
-                <p className="text-xs text-ink-faint">Token expiry and overstay thresholds.</p>
+                <p className="font-semibold text-ink">System configuration</p>
+                <p className="text-xs text-ink-faint">Companies, visitor types, purposes, auth expiry, and overstay rules.</p>
               </div>
               <ChevronRight className="h-4 w-4 text-ink-faint" />
             </GlassCard>

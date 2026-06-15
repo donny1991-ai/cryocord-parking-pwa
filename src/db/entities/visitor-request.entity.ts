@@ -7,6 +7,7 @@ export interface VisitorRequestEntity {
   name: string;
   phoneNumber: string;
   organisation: string | null;
+  representingOrganisation: string | null;
   identityType: "nric" | "passport";
   nric: string | null;
   passportNumber: string | null;
@@ -45,6 +46,12 @@ export const VisitorRequestSchema = new EntitySchema<VisitorRequestEntity>({
       length: 40,
     },
     organisation: {
+      type: String,
+      length: 160,
+      nullable: true,
+    },
+    representingOrganisation: {
+      name: "representing_organisation",
       type: String,
       length: 160,
       nullable: true,

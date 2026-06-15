@@ -13,8 +13,11 @@ import { PlateCapture } from "./plate-capture";
 import { VISIT_TYPES, PURPOSES, type VisitType, type Purpose } from "@/lib/enums";
 import { labelize } from "@/lib/labels";
 import { cn, formatDateTime, normalisePlate } from "@/lib/utils";
+import { visitTypeRequiresHost } from "@/lib/visit-rules";
 import { buildPassMessage, waCallLink, waLink } from "@/lib/whatsapp";
 import type { Employee, Vehicle } from "@/lib/types";
+import type { ParkingAdminOptions } from "@/lib/server/admin-options";
+import { CompanyOrganisationField } from "./company-organisation-field";
 
 type Step = "capture" | "form" | "pass";
 
@@ -39,7 +42,15 @@ function normaliseAdditionalVehicleInput(value: string) {
   return value.trim().toUpperCase().replace(/\s+/g, " ");
 }
 
-export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; vehicles: Vehicle[] }) {
+export function NewEntryFlow({
+  employees,
+  vehicles,
+  options,
+}: {
+  employees: Employee[];
+  vehicles: Vehicle[];
+  options?: ParkingAdminOptions;
+}) {
   const [step, setStep] = useState<Step>("capture");
   const [plate, setPlate] = useState("");
   const [editingPlate, setEditingPlate] = useState(false);
@@ -53,6 +64,7 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
   const [visitorName, setVisitorName] = useState("");
   const [visitorContact, setVisitorContact] = useState("");
   const [organisation, setOrganisation] = useState("");
+  const [representingOrganisation, setRepresentingOrganisation] = useState("");
   const [visitType, setVisitType] = useState<VisitType>("visitor");
   const [purpose, setPurpose] = useState<Purpose>("meeting");
   const [visitTime, setVisitTime] = useState("");
@@ -92,6 +104,17 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
   const [issued, setIssued] = useState<{ id: string; token: string; tokenExpiresAt: string } | null>(null);
   const [issuing, setIssuing] = useState(false);
   const [issueError, setIssueError] = useState<string | null>(null);
+  const companyOptions = options?.companies ?? [];
+  const visitorTypeOptions = options?.visitorTypes?.length
+    ? options.visitorTypes
+    : VISIT_TYPES.map((code, index) => ({ id: index + 1, code, label: labelize(code) }));
+  const purposeOptions = options?.purposes?.length
+    ? options.purposes
+    : PURPOSES.map((code, index) => ({ id: index + 1, code, label: labelize(code) }));
+  const visitTypePurposeRules = options?.visitTypePurposeRules ?? [
+    { id: "default-courier", visitorTypeCode: "courier", purposeCode: "delivery" },
+  ];
+  const hostRequired = visitTypeRequiresHost(visitType);
   const remarksRequired = visitType === "other" || purpose === "other";
   const hasIdentityDocument = identityType === "nric" ? nric.trim() : passportNumber.trim();
   const blockedVehicle = known?.blacklisted ? known : null;
@@ -180,7 +203,7 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
     plate &&
     visitorName.trim() &&
     visitorContact.trim() &&
-    selectedHost &&
+    (!hostRequired || selectedHost) &&
     hasIdentityDocument &&
     !blockedVehicle &&
     additionalVehicleRowsValid &&
@@ -191,6 +214,12 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
     setHostStaffId(host.staffId);
     setHostQuery(host.name);
     setHostSearchOpen(false);
+  }
+
+  function changeVisitType(value: VisitType) {
+    setVisitType(value);
+    const rule = visitTypePurposeRules.find((item) => item.visitorTypeCode === value);
+    if (rule) setPurpose(rule.purposeCode);
   }
 
   async function issuePass() {
@@ -211,6 +240,7 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
           name: visitorName,
           phoneNumber: visitorContact,
           organisation: organisation || undefined,
+          representingOrganisation: representingOrganisation || undefined,
           identityType: hasIdentityDocument ? identityType : undefined,
           nric: identityType === "nric" && hasIdentityDocument ? nric : undefined,
           passportNumber: identityType === "passport" && hasIdentityDocument ? passportNumber : undefined,
@@ -458,6 +488,48 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
         <Field label="Main visitor name" required>
           <Input value={visitorName} onChange={(e) => setVisitorName(e.target.value)} placeholder="Full name" />
         </Field>
+        <Field
+          label="Main visitor identity document"
+          required
+          hint="Only the main visitor needs NRIC/passport details. Additional visitors are recorded by name."
+        >
+          <div className="grid grid-cols-2 gap-2 rounded-2xl bg-white/40 p-1">
+            <button
+              type="button"
+              className={cn(
+                "h-10 rounded-xl text-sm font-bold transition",
+                identityType === "nric" ? "bg-white text-brand shadow-sm" : "text-ink-soft",
+              )}
+              onClick={() => setIdentityType("nric")}
+            >
+              NRIC
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "h-10 rounded-xl text-sm font-bold transition",
+                identityType === "passport" ? "bg-white text-brand shadow-sm" : "text-ink-soft",
+              )}
+              onClick={() => setIdentityType("passport")}
+            >
+              Passport
+            </button>
+          </div>
+        </Field>
+
+        {identityType === "nric" ? (
+          <Field label="Main visitor NRIC number" required hint="Main visitor only. Format: YYMMDD-PB-####.">
+            <Input value={nric} onChange={(e) => setNric(e.target.value)} placeholder="900101-14-1234" />
+          </Field>
+        ) : (
+          <Field label="Main visitor passport number" required hint="Main visitor only.">
+            <Input
+              value={passportNumber}
+              onChange={(e) => setPassportNumber(e.target.value.toUpperCase())}
+              placeholder="Passport number"
+            />
+          </Field>
+        )}
         <Field label="Main visitor contact number" required>
           <Input
             value={visitorContact}
@@ -467,30 +539,35 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
           />
         </Field>
 
-        <Field label="Company / organisation">
-          <Input
-            value={organisation}
-            onChange={(e) => setOrganisation(e.target.value)}
-            placeholder="Company or organisation"
-          />
-        </Field>
-
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Visit type" required>
-            <Select value={visitType} onChange={(e) => setVisitType(e.target.value as VisitType)}>
-              {VISIT_TYPES.map((t) => (
-                <option key={t} value={t}>{labelize(t)}</option>
+            <Select value={visitType} onChange={(e) => changeVisitType(e.target.value)}>
+              {visitorTypeOptions.map((t) => (
+                <option key={t.code} value={t.code}>{t.label}</option>
               ))}
             </Select>
           </Field>
           <Field label="Purpose" required>
-            <Select value={purpose} onChange={(e) => setPurpose(e.target.value as Purpose)}>
-              {PURPOSES.map((p) => (
-                <option key={p} value={p}>{labelize(p)}</option>
+            <Select value={purpose} onChange={(e) => setPurpose(e.target.value)}>
+              {purposeOptions.map((p) => (
+                <option key={p.code} value={p.code}>{p.label}</option>
               ))}
             </Select>
           </Field>
         </div>
+
+        <CompanyOrganisationField
+          value={organisation}
+          onChange={setOrganisation}
+          companies={companyOptions}
+        />
+        <Field label="Company represented">
+          <Input
+            value={representingOrganisation}
+            onChange={(e) => setRepresentingOrganisation(e.target.value)}
+            placeholder="Visitor company or organisation"
+          />
+        </Field>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Visit time">
@@ -577,7 +654,7 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
 
         <div className="space-y-1.5">
           <span className="block text-sm font-semibold text-ink-soft">
-            Host <span className="text-brand">*</span>
+            Host {hostRequired && <span className="text-brand">*</span>}
           </span>
           <div className="relative">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
@@ -596,7 +673,7 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
               aria-expanded={hostSearchOpen}
               aria-controls="host-search-results"
               aria-autocomplete="list"
-              aria-required="true"
+              aria-required={hostRequired}
             />
             {hostQuery && (
               <button
@@ -613,7 +690,9 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
               </button>
             )}
           </div>
-          <span className="block text-xs text-ink-faint">Search the HR employee directory before confirming the visitor.</span>
+          <span className="block text-xs text-ink-faint">
+            {hostRequired ? "Search the HR employee directory before confirming the visitor." : "Optional for courier visits."}
+          </span>
 
           {hostSearchOpen && (
             <div
@@ -677,48 +756,6 @@ export function NewEntryFlow({ employees, vehicles }: { employees: Employee[]; v
           </div>
         )}
 
-        <Field
-          label="Main visitor identity document"
-          required
-          hint="Only the main visitor needs NRIC/passport details. Additional visitors are recorded by name."
-        >
-          <div className="grid grid-cols-2 gap-2 rounded-2xl bg-white/40 p-1">
-            <button
-              type="button"
-              className={cn(
-                "h-10 rounded-xl text-sm font-bold transition",
-                identityType === "nric" ? "bg-white text-brand shadow-sm" : "text-ink-soft",
-              )}
-              onClick={() => setIdentityType("nric")}
-            >
-              NRIC
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "h-10 rounded-xl text-sm font-bold transition",
-                identityType === "passport" ? "bg-white text-brand shadow-sm" : "text-ink-soft",
-              )}
-              onClick={() => setIdentityType("passport")}
-            >
-              Passport
-            </button>
-          </div>
-        </Field>
-
-        {identityType === "nric" ? (
-          <Field label="Main visitor NRIC number" required hint="Main visitor only. Format: YYMMDD-PB-####.">
-            <Input value={nric} onChange={(e) => setNric(e.target.value)} placeholder="900101-14-1234" />
-          </Field>
-        ) : (
-          <Field label="Main visitor passport number" required hint="Main visitor only.">
-            <Input
-              value={passportNumber}
-              onChange={(e) => setPassportNumber(e.target.value.toUpperCase())}
-              placeholder="Passport number"
-            />
-          </Field>
-        )}
       </GlassCard>
 
       {/* Consent notice */}

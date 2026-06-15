@@ -49,6 +49,7 @@ export interface Visit {
   visitorName: string;
   visitorContact: string;
   organisation?: string;
+  representingOrganisation?: string;
   identityType?: "nric" | "passport";
   nric?: string;
   passportNumber?: string;
@@ -84,6 +85,7 @@ export interface VisitorRequest {
   name: string;
   phoneNumber: string;
   organisation?: string;
+  representingOrganisation?: string;
   identityType: "nric" | "passport";
   nric?: string;
   passportNumber?: string;

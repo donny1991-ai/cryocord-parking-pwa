@@ -181,6 +181,9 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
         {visit.organisation && (
           <DetailRow icon={Hash} label="Company / organisation" value={visit.organisation} />
         )}
+        {visit.representingOrganisation && (
+          <DetailRow icon={Hash} label="Company represented" value={visit.representingOrganisation} />
+        )}
         {(visit.additionalPlates?.length ?? 0) > 0 && (
           <DetailRow icon={Hash} label="Other plates" value={visit.additionalPlates!.join(", ")} />
         )}

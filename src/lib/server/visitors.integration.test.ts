@@ -1154,6 +1154,37 @@ describe("visitor pass database flow", () => {
     );
   });
 
+  it("accepts public Courier registrations without a requested host", async () => {
+    const response = await createPublicVisitorRequestEndpoint(
+      jsonRequest("/api/public/visitor-requests", {
+        name: "Courier Rider",
+        phoneNumber: "0196776100",
+        organisation: "Delivery Partner",
+        identityType: "nric",
+        nric: "900101-14-1234",
+        vehicleNumber: "CR 100",
+        typeCode: "courier",
+        purpose: "delivery",
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      requestedHostText: "",
+      visitor: {
+        name: "Courier Rider",
+        typeCode: "courier",
+        purpose: "delivery",
+        hostStaffId: null,
+      },
+    });
+
+    const saved = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: payload.visitor.id });
+    expect(saved.hostStaffId).toBeNull();
+    expect(saved.remarks).toBeNull();
+  });
+
   it("checks in a public QR visitor after a guard assigns an HR host", async () => {
     const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
     const token = await signTestSupabaseAccessToken(guard.id);
@@ -1387,6 +1418,33 @@ describe("visitor pass database flow", () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({
       error: "Host is required.",
+    });
+  });
+
+  it("allows authenticated Courier visitor endpoint requests without a host", async () => {
+    const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
+    const token = await signTestSupabaseAccessToken(guard.id);
+
+    const response = await createVisitorEndpoint(
+      jsonRequest(
+        "/api/visitors",
+        createVisitorInputFactory({
+          typeCode: "courier",
+          purpose: "delivery",
+          hostStaffId: "",
+          hostDepartment: "",
+        }),
+        token,
+      ),
+    );
+
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.visitor).toMatchObject({
+      typeCode: "courier",
+      purpose: "delivery",
+      hostStaffId: null,
+      hostDepartment: null,
     });
   });
 

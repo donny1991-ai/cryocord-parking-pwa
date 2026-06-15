@@ -23,11 +23,12 @@ test.describe("vehicle blacklist", () => {
       },
     ]);
 
-    await page.goto("/parking/entry");
+    await page.goto("/parking/entry?mode=plate");
     await expect(page.getByRole("heading", { name: "Gate Entry" })).toBeVisible();
 
     const plateInput = page.getByPlaceholder("e.g. WA 18 K");
-    await plateInput.pressSequentially(seed.plate);
+    await plateInput.click();
+    await plateInput.pressSequentially(seed.plate, { delay: 5 });
     await expect(plateInput).toHaveValue(seed.plate);
     await expect(page.getByRole("button", { name: "Use" })).toBeEnabled();
     await page.getByRole("button", { name: "Use" }).click();

@@ -12,8 +12,11 @@ import { checkCameraSupport } from "@/lib/camera";
 import { labelize, purposeLabel, visitTypeLabel } from "@/lib/labels";
 import { PURPOSES, VISIT_TYPES, type Purpose, type VisitType } from "@/lib/enums";
 import { normalisePlate } from "@/lib/utils";
+import { visitTypeRequiresHost } from "@/lib/visit-rules";
 import { waCallLink } from "@/lib/whatsapp";
 import type { Employee } from "@/lib/types";
+import type { ParkingAdminOptions } from "@/lib/server/admin-options";
+import { CompanyOrganisationField } from "./company-organisation-field";
 
 const QrScanner = dynamic(() => import("./qr-scanner").then((module) => module.QrScanner), {
   ssr: false,
@@ -25,6 +28,7 @@ interface ScannedVisitor {
   name: string;
   phoneNumber: string;
   organisation: string | null;
+  representingOrganisation: string | null;
   identityType: "nric" | "passport" | null;
   nric: string | null;
   passportNumber: string | null;
@@ -70,6 +74,7 @@ interface VisitorDraft {
   name: string;
   phoneNumber: string;
   organisation: string;
+  representingOrganisation: string;
   identityType: "nric" | "passport";
   nric: string;
   passportNumber: string;
@@ -91,6 +96,7 @@ function toDraft(visitor: ScannedVisitor): VisitorDraft {
     name: visitor.name,
     phoneNumber: visitor.phoneNumber,
     organisation: visitor.organisation ?? "",
+    representingOrganisation: visitor.representingOrganisation ?? "",
     identityType: visitor.identityType === "passport" ? "passport" : "nric",
     nric: visitor.nric ?? "",
     passportNumber: visitor.passportNumber ?? "",
@@ -147,7 +153,13 @@ function requestedHostFromRemarks(value: string | null) {
   return match?.[1]?.trim() ?? "";
 }
 
-export function ArrivalScanFlow({ employees = [] }: { employees?: Employee[] }) {
+export function ArrivalScanFlow({
+  employees = [],
+  options,
+}: {
+  employees?: Employee[];
+  options?: ParkingAdminOptions;
+}) {
   const [scanning, setScanning] = useState(false);
   const [camMsg, setCamMsg] = useState<string | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -160,6 +172,16 @@ export function ArrivalScanFlow({ employees = [] }: { employees?: Employee[] }) 
   const [selectedVehicleNumber, setSelectedVehicleNumber] = useState("");
   const [checkedIn, setCheckedIn] = useState<ScannedVisitor | null>(null);
   const [submitting, setSubmitting] = useState<{ action: "approve" | "reject"; vehicleNumber: string } | null>(null);
+  const companyOptions = options?.companies ?? [];
+  const visitorTypeOptions = options?.visitorTypes?.length
+    ? options.visitorTypes
+    : VISIT_TYPES.map((code, index) => ({ id: index + 1, code, label: labelize(code) }));
+  const purposeOptions = options?.purposes?.length
+    ? options.purposes
+    : PURPOSES.map((code, index) => ({ id: index + 1, code, label: purposeLabel(code) }));
+  const visitTypePurposeRules = options?.visitTypePurposeRules ?? [
+    { id: "default-courier", visitorTypeCode: "courier", purposeCode: "delivery" },
+  ];
 
   function startScan() {
     const support = checkCameraSupport();
@@ -338,6 +360,12 @@ export function ArrivalScanFlow({ employees = [] }: { employees?: Employee[] }) 
     });
   }
 
+  function updateDraftVisitType(value: VisitType) {
+    if (!draft) return;
+    const rule = visitTypePurposeRules.find((item) => item.visitorTypeCode === value);
+    setDraft({ ...draft, typeCode: value, purpose: rule?.purposeCode ?? draft.purpose });
+  }
+
   const remarksRequired = Boolean(draft && (draft.typeCode === "other" || draft.purpose === "other"));
   const hasIdentityDocument = draft
     ? draft.identityType === "nric"
@@ -345,6 +373,7 @@ export function ArrivalScanFlow({ employees = [] }: { employees?: Employee[] }) 
       : draft.passportNumber.trim()
     : false;
   const selectedHost = draft ? employees.find((employee) => employee.staffId === draft.hostStaffId) : undefined;
+  const hostRequired = draft ? visitTypeRequiresHost(draft.typeCode) : true;
   const cleanAdditionalVehicleNumbers = draft ? parseAdditionalVehicleRows(draft.additionalVehicleNumbers, draft.vehicleNumber) : [];
   const additionalVehicleRowsValid = draft
     ? draft.additionalVehicleNumbers.every((plate) => !plate.trim() || normalisePlate(plate).length >= 3)
@@ -361,7 +390,7 @@ export function ArrivalScanFlow({ employees = [] }: { employees?: Employee[] }) 
       draft.name.trim() &&
       draft.phoneNumber.trim() &&
       hasIdentityDocument &&
-      hasConfirmedHost &&
+      (!hostRequired || hasConfirmedHost) &&
       additionalVehicleRowsValid &&
       (!remarksRequired || draft.remarks.trim()) &&
       submitting === null,
@@ -404,6 +433,9 @@ export function ArrivalScanFlow({ employees = [] }: { employees?: Employee[] }) 
           </div>
           <Row label="Main visitor" value={checkedIn.name} />
           <Row label="Contact" value={checkedIn.phoneNumber} />
+          {checkedIn.representingOrganisation && (
+            <Row label="Company represented" value={checkedIn.representingOrganisation} />
+          )}
           {(checkedIn.additionalVehicleNumbers?.length ?? 0) > 0 && (
             <Row label="Other plates" value={checkedIn.additionalVehicleNumbers.join(", ")} />
           )}
@@ -609,27 +641,9 @@ export function ArrivalScanFlow({ employees = [] }: { employees?: Employee[] }) 
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Main visitor" required>
-              <Input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
-            </Field>
-            <Field label="Main visitor contact" required>
-              <Input
-                value={draft.phoneNumber}
-                onChange={(event) => setDraft({ ...draft, phoneNumber: event.target.value })}
-                inputMode="tel"
-              />
-            </Field>
-          </div>
-
-          <Field label="Company / organisation">
-            <Input
-              value={draft.organisation}
-              onChange={(event) => setDraft({ ...draft, organisation: event.target.value })}
-              placeholder="Company or organisation"
-            />
+          <Field label="Main visitor" required>
+            <Input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
           </Field>
-
           <Field
             label="Main visitor identity document"
             required
@@ -679,24 +693,46 @@ export function ArrivalScanFlow({ employees = [] }: { employees?: Employee[] }) 
             </Field>
           )}
 
+          <Field label="Main visitor contact" required>
+            <Input
+              value={draft.phoneNumber}
+              onChange={(event) => setDraft({ ...draft, phoneNumber: event.target.value })}
+              inputMode="tel"
+            />
+          </Field>
+
+          <CompanyOrganisationField
+            value={draft.organisation}
+            onChange={(organisation) => setDraft({ ...draft, organisation })}
+            companies={companyOptions}
+          />
+
+          <Field label="Company represented">
+            <Input
+              value={draft.representingOrganisation}
+              onChange={(event) => setDraft({ ...draft, representingOrganisation: event.target.value })}
+              placeholder="Visitor company or organisation"
+            />
+          </Field>
+
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Visit type" required>
               <Select
                 value={draft.typeCode}
-                onChange={(event) => setDraft({ ...draft, typeCode: event.target.value as VisitType })}
+                onChange={(event) => updateDraftVisitType(event.target.value)}
               >
-                {VISIT_TYPES.map((type) => (
-                  <option key={type} value={type}>{labelize(type)}</option>
+                {visitorTypeOptions.map((type) => (
+                  <option key={type.code} value={type.code}>{type.label}</option>
                 ))}
               </Select>
             </Field>
             <Field label="Purpose" required>
               <Select
                 value={draft.purpose}
-                onChange={(event) => setDraft({ ...draft, purpose: event.target.value as Purpose })}
+                onChange={(event) => setDraft({ ...draft, purpose: event.target.value })}
               >
-                {PURPOSES.map((purpose) => (
-                  <option key={purpose} value={purpose}>{purposeLabel(purpose)}</option>
+                {purposeOptions.map((purpose) => (
+                  <option key={purpose.code} value={purpose.code}>{purpose.label}</option>
                 ))}
               </Select>
             </Field>
@@ -784,7 +820,7 @@ export function ArrivalScanFlow({ employees = [] }: { employees?: Employee[] }) 
             )}
 
             <span className="block text-sm font-semibold text-ink-soft">
-              Assign confirmed host <span className="text-brand">*</span>
+              Assign confirmed host {hostRequired && <span className="text-brand">*</span>}
             </span>
             <div className="relative">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
@@ -801,7 +837,7 @@ export function ArrivalScanFlow({ employees = [] }: { employees?: Employee[] }) 
                 role="combobox"
                 aria-label={`Assign host for ${draft.vehicleNumber}`}
                 aria-expanded={hostSearchOpen}
-                aria-required="true"
+                aria-required={hostRequired}
               />
               {hostQuery && (
                 <button
@@ -818,6 +854,9 @@ export function ArrivalScanFlow({ employees = [] }: { employees?: Employee[] }) 
                 </button>
               )}
             </div>
+            <span className="block text-xs text-ink-faint">
+              {hostRequired ? "Search the HR employee directory before approving arrival." : "Optional for courier visits."}
+            </span>
 
             {hostSearchOpen && (
               <div className="overflow-hidden rounded-2xl border border-white/70 bg-white/90 shadow-lift backdrop-blur-md">

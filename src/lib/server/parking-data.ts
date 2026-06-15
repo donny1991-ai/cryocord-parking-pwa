@@ -37,6 +37,7 @@ export interface ParkingSnapshot {
 
 const MALAYSIA_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
 const OPTIONAL_VISITOR_COLUMNS = [
+  "representing_organisation",
   "identity_type",
   "nric",
   "passport_number",
@@ -66,6 +67,7 @@ interface VisitorReadRow {
   name: string;
   phoneNumber: string;
   organisation: string | null;
+  representingOrganisation: string | null;
   identityType: "nric" | "passport" | null;
   nric: string | null;
   passportNumber: string | null;
@@ -426,6 +428,7 @@ function toVisit(row: VisitorReadRow, now: Date, overstayAllowedDays: number): V
     visitorName: row.name,
     visitorContact: row.phoneNumber,
     organisation: row.organisation ?? undefined,
+    representingOrganisation: row.representingOrganisation ?? undefined,
     identityType: row.identityType ?? undefined,
     nric: row.nric ?? undefined,
     passportNumber: row.passportNumber ?? undefined,
@@ -489,6 +492,7 @@ async function readVisitors(options: ReadVisitorsOptions = {}) {
         v."name",
         v."phone_number" AS "phoneNumber",
         v."organisation",
+        ${optionalVisitorSelect(columns, "representing_organisation", "representingOrganisation", "NULL::text")},
         ${optionalVisitorSelect(columns, "identity_type", "identityType", "NULL::text")},
         ${optionalVisitorSelect(columns, "nric", "nric", "NULL::text")},
         ${optionalVisitorSelect(columns, "passport_number", "passportNumber", "NULL::text")},
@@ -985,6 +989,7 @@ const DETAIL_FIELD_LABELS: Record<string, string> = {
   name: "Visitor name",
   phoneNumber: "Phone number",
   organisation: "Organisation",
+  representingOrganisation: "Company represented",
   identityType: "Identity type",
   nric: "NRIC",
   passportNumber: "Passport number",

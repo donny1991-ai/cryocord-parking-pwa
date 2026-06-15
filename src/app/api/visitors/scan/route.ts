@@ -19,6 +19,7 @@ const LIMITS = {
   name: 160,
   phoneNumber: 40,
   organisation: 160,
+  representingOrganisation: 160,
   nric: 14,
   passportNumber: 20,
   vehicleNumber: 32,
@@ -82,6 +83,12 @@ function parseVisitorDetails(value: unknown): VisitorDetailsUpdateInput | undefi
 
   if ("organisation" in body) {
     details.organisation = parseNullableString(body.organisation, LIMITS.organisation);
+  }
+  if ("representingOrganisation" in body) {
+    details.representingOrganisation = parseNullableString(
+      body.representingOrganisation,
+      LIMITS.representingOrganisation,
+    );
   }
 
   if ("identityType" in body) details.identityType = body.identityType === "passport" ? "passport" : "nric";

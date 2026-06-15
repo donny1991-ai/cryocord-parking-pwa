@@ -55,6 +55,7 @@ export function visitorEntityFactory(overrides: Partial<VisitorEntity> = {}): Vi
     name: faker.person.fullName(),
     phoneNumber: faker.phone.number({ style: "international" }),
     organisation: null,
+    representingOrganisation: null,
     identityType,
     nric,
     passportNumber,

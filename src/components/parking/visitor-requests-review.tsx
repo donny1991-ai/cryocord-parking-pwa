@@ -140,6 +140,7 @@ function VisitorRequestCard({ request, employees }: { request: VisitorRequest; e
         <Info label="Purpose" value={purposeLabel(request.purpose)} />
         <Info label="Requested host" value={request.requestedHostText} />
         <Info label="Organisation" value={request.organisation ?? "Not provided"} />
+        <Info label="Company represented" value={request.representingOrganisation ?? "Not provided"} />
         <Info label="Visitors" value={String(request.visitorCount ?? 1)} />
       </div>
 

@@ -1,3 +1,5 @@
+export { CompanySchema } from "./company.entity";
+export type { CompanyEntity } from "./company.entity";
 export { AuthOtpSchema } from "./auth-otp.entity";
 export type { AuthOtpEntity } from "./auth-otp.entity";
 export { HrDepartmentSchema } from "./hr-department.entity";
@@ -10,6 +12,10 @@ export { ParkingSettingSchema } from "./parking-setting.entity";
 export type { ParkingSettingEntity } from "./parking-setting.entity";
 export { VisitorTypeSchema } from "./visitor-type.entity";
 export type { VisitorTypeEntity } from "./visitor-type.entity";
+export { VisitPurposeSchema } from "./visit-purpose.entity";
+export type { VisitPurposeEntity } from "./visit-purpose.entity";
+export { VisitTypePurposeRuleSchema } from "./visit-type-purpose-rule.entity";
+export type { VisitTypePurposeRuleEntity } from "./visit-type-purpose-rule.entity";
 export { VisitorSchema } from "./visitor.entity";
 export type { VisitorEntity, VisitorStatus } from "./visitor.entity";
 export { VisitorVehicleSchema } from "./visitor-vehicle.entity";

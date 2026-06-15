@@ -39,7 +39,8 @@ export function VisitsList({ visits, nowIso }: { visits: Visit[]; nowIso: string
         activePlateMatch ||
         includesText(v.visitorName, textQuery) ||
         includesText(v.visitorContact, textQuery) ||
-        includesText(v.organisation, textQuery)
+        includesText(v.organisation, textQuery) ||
+        includesText(v.representingOrganisation, textQuery)
       );
     });
   }, [all, query, filter]);
