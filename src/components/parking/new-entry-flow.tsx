@@ -55,6 +55,7 @@ export function NewEntryFlow({
   const [plate, setPlate] = useState("");
   const [editingPlate, setEditingPlate] = useState(false);
   const [plateDraft, setPlateDraft] = useState("");
+  const [plateScanned, setPlateScanned] = useState(false);
 
   const known = useMemo(() => {
     const normalised = normalisePlate(plate);
@@ -175,11 +176,12 @@ export function NewEntryFlow({
     }
   }
 
-  function selectPlate(p: string) {
+  function selectPlate(p: string, source: "scan" | "manual" = "manual") {
     const nextPlate = normalisePlate(p);
     setPlate(nextPlate);
     setPlateDraft(nextPlate);
     setEditingPlate(false);
+    setPlateScanned(source === "scan");
     prefillKnownVehicle(nextPlate);
     setStep("form");
   }
@@ -196,6 +198,7 @@ export function NewEntryFlow({
     setPlate(nextPlate);
     setPlateDraft(nextPlate);
     setEditingPlate(false);
+    setPlateScanned(false);
     prefillKnownVehicle(nextPlate);
   }
 
@@ -398,6 +401,7 @@ export function NewEntryFlow({
                 type="button"
                 onClick={() => {
                   setEditingPlate(false);
+                  setPlateScanned(false);
                   setStep("capture");
                 }}
                 className="text-xs font-semibold text-brand"
@@ -414,6 +418,13 @@ export function NewEntryFlow({
           </p>
         )}
       </GlassCard>
+
+      {plateScanned && !blockedVehicle && (
+        <div role="status" className="flex items-center gap-2 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-3.5 py-2.5 text-sm font-semibold text-emerald-700">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          <span>Plate scanned successfully. Complete the visitor details below.</span>
+        </div>
+      )}
 
       {blockedVehicle ? (
         <div className="rounded-2xl border border-brand/25 bg-brand/10 px-3.5 py-3 text-sm text-brand">
