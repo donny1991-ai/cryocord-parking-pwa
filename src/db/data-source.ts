@@ -2,6 +2,7 @@ import "reflect-metadata";
 import dotenv from "dotenv";
 import { DataSource } from "typeorm";
 import { AuthOtpSchema } from "./entities/auth-otp.entity";
+import { CompanySchema } from "./entities/company.entity";
 import { HrDepartmentSchema } from "./entities/hr-department.entity";
 import { HrUserSchema } from "./entities/hr-user.entity";
 import { ParkingSettingSchema } from "./entities/parking-setting.entity";
@@ -12,6 +13,8 @@ import { VisitorRequestSchema } from "./entities/visitor-request.entity";
 import { VisitorSchema } from "./entities/visitor.entity";
 import { VisitorTypeSchema } from "./entities/visitor-type.entity";
 import { VisitorVehicleSchema } from "./entities/visitor-vehicle.entity";
+import { VisitPurposeSchema } from "./entities/visit-purpose.entity";
+import { VisitTypePurposeRuleSchema } from "./entities/visit-type-purpose-rule.entity";
 import { VehicleSchema } from "./entities/vehicle.entity";
 import { assertSafeTestDatabaseUrl, getConfiguredTestDatabaseUrl } from "./test-guard";
 
@@ -30,6 +33,12 @@ const sslMode =
   process.env.NODE_ENV === "test"
     ? process.env.TEST_DATABASE_SSL ?? process.env.SUPABASE_TEST_DB_SSL
     : process.env.DATABASE_SSL ?? process.env.SUPABASE_DB_SSL;
+
+const poolMax = Number(
+  process.env.NODE_ENV === "test"
+    ? process.env.TEST_DATABASE_POOL_MAX ?? process.env.DATABASE_POOL_MAX ?? 3
+    : process.env.DATABASE_POOL_MAX ?? 3,
+);
 
 if (process.env.NODE_ENV === "test") {
   assertSafeTestDatabaseUrl(databaseUrl);
@@ -57,7 +66,10 @@ export const AppDataSource = new DataSource({
     HrUserSchema,
     ParkingSettingSchema,
     ParkingUserSchema,
+    CompanySchema,
     VisitorTypeSchema,
+    VisitPurposeSchema,
+    VisitTypePurposeRuleSchema,
     VisitorSchema,
     VisitorEntrySnapshotSchema,
     VisitorRequestSchema,
@@ -69,6 +81,9 @@ export const AppDataSource = new DataSource({
   migrationsTableName: "typeorm_migrations",
   synchronize: false,
   logging: process.env.TYPEORM_LOGGING === "true",
+  extra: {
+    max: Number.isInteger(poolMax) && poolMax > 0 ? poolMax : 3,
+  },
   ssl:
     sslMode === "true"
       ? { rejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== "false" }

@@ -14,7 +14,7 @@ export const VISIT_TYPES = [
   "vip",
   "other",
 ] as const;
-export type VisitType = (typeof VISIT_TYPES)[number];
+export type VisitType = string;
 
 export const PURPOSES = [
   "meeting",
@@ -25,7 +25,7 @@ export const PURPOSES = [
   "pickup",
   "other",
 ] as const;
-export type Purpose = (typeof PURPOSES)[number];
+export type Purpose = string;
 
 export const STATUSES = [
   "pending",

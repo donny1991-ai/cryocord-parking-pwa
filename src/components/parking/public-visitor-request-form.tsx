@@ -5,8 +5,14 @@ import { CheckCircle2, Plus, Send, ShieldCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
-import { PURPOSES, type Purpose } from "@/lib/enums";
-import { purposeLabel } from "@/lib/labels";
+import { PURPOSES, VISIT_TYPES, type Purpose, type VisitType } from "@/lib/enums";
+import { purposeLabel, visitTypeLabel } from "@/lib/labels";
+import type { ParkingAdminOptions } from "@/lib/server/admin-options";
+import { formatDateTime } from "@/lib/utils";
+import { visitTypeRequiresHost } from "@/lib/visit-rules";
+import { CompanyOrganisationField } from "./company-organisation-field";
+import { QrPass } from "./qr-pass";
+import { QrPassShareButton } from "./qr-pass-share-button";
 
 function cleanName(value: string) {
   return value.trim().replace(/\s+/g, " ");
@@ -16,15 +22,26 @@ function parseNames(values: string[]) {
   return values.map(cleanName).filter(Boolean);
 }
 
-export function PublicVisitorRequestForm() {
-  const [submittedPlate, setSubmittedPlate] = useState("");
+type PublicVisitorRequestFormProps = {
+  options?: ParkingAdminOptions;
+};
+
+export function PublicVisitorRequestForm({ options }: PublicVisitorRequestFormProps = {}) {
+  const [issuedPass, setIssuedPass] = useState<{
+    token: string;
+    tokenExpiresAt: string;
+    plate: string;
+    visitorName: string;
+  } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [organisation, setOrganisation] = useState("");
+  const [representingOrganisation, setRepresentingOrganisation] = useState("");
   const [requestedHostText, setRequestedHostText] = useState("");
   const [vehicleNumber, setVehicleNumber] = useState("");
+  const [visitType, setVisitType] = useState<VisitType>("visitor");
   const [purpose, setPurpose] = useState<Purpose>("meeting");
   const [visitorCount, setVisitorCount] = useState("");
   const [otherVisitorRows, setOtherVisitorRows] = useState<string[]>([]);
@@ -33,13 +50,26 @@ export function PublicVisitorRequestForm() {
   const [passportNumber, setPassportNumber] = useState("");
   const [remarks, setRemarks] = useState("");
 
+  const companyOptions = options?.companies ?? [];
+  const visitorTypeOptions = options?.visitorTypes?.length
+    ? options.visitorTypes
+    : VISIT_TYPES.map((code, index) => ({ id: index + 1, code, label: visitTypeLabel(code) }));
+  const purposeOptions = options?.purposes?.length
+    ? options.purposes
+    : PURPOSES.map((code, index) => ({ id: index + 1, code, label: purposeLabel(code) }));
+  const visitTypePurposeRules = options?.visitTypePurposeRules ?? [
+    { id: "default-courier", visitorTypeCode: "courier", purposeCode: "delivery" },
+  ];
+  const hostRequired = visitTypeRequiresHost(visitType);
+  const remarksRequired = visitType === "other" || purpose === "other";
   const otherVisitorNames = useMemo(() => parseNames(otherVisitorRows), [otherVisitorRows]);
   const canSubmit = Boolean(
     name.trim() &&
     phoneNumber.trim() &&
-    requestedHostText.trim() &&
+    (!hostRequired || requestedHostText.trim()) &&
     vehicleNumber.trim() &&
-    (identityType === "nric" ? nric.trim() : passportNumber.trim()),
+    (identityType === "nric" ? nric.trim() : passportNumber.trim()) &&
+    (!remarksRequired || remarks.trim()),
   );
 
   function updateVisitorCount(value: string) {
@@ -64,6 +94,12 @@ export function PublicVisitorRequestForm() {
     setVisitorCount(String(next.length + 1));
   }
 
+  function changeVisitType(value: VisitType) {
+    setVisitType(value);
+    const rule = visitTypePurposeRules.find((item) => item.visitorTypeCode === value);
+    if (rule) setPurpose(rule.purposeCode);
+  }
+
   async function submit() {
     if (!canSubmit || submitting) return;
     setSubmitting(true);
@@ -77,8 +113,10 @@ export function PublicVisitorRequestForm() {
           name,
           phoneNumber,
           organisation: organisation || undefined,
+          representingOrganisation: representingOrganisation || undefined,
           requestedHostText,
           vehicleNumber,
+          typeCode: visitType,
           purpose,
           visitorCount: visitorCount || undefined,
           otherVisitorNames: otherVisitorNames.length > 0 ? otherVisitorNames : undefined,
@@ -93,8 +131,16 @@ export function PublicVisitorRequestForm() {
       if (!response.ok) {
         throw new Error(payload.error ?? "Unable to submit registration.");
       }
+      if (!payload.token || !payload.tokenExpiresAt || !payload.visitor?.vehicleNumber) {
+        throw new Error("Registration was submitted, but the QR pass could not be prepared.");
+      }
 
-      setSubmittedPlate(vehicleNumber.trim().toUpperCase());
+      setIssuedPass({
+        token: String(payload.token ?? ""),
+        tokenExpiresAt: String(payload.tokenExpiresAt ?? ""),
+        plate: String(payload.visitor?.vehicleNumber ?? vehicleNumber).trim().toUpperCase(),
+        visitorName: String(payload.visitor?.name ?? name).trim(),
+      });
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Unable to submit registration.");
     } finally {
@@ -102,23 +148,48 @@ export function PublicVisitorRequestForm() {
     }
   }
 
-  if (submittedPlate) {
+  if (issuedPass) {
+    const validUntil = issuedPass.tokenExpiresAt ? formatDateTime(issuedPass.tokenExpiresAt) : "today";
+
     return (
-      <GlassCard padding="lg" className="space-y-5 text-center">
-        <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/12 text-emerald-700">
-          <CheckCircle2 className="h-8 w-8" />
-        </span>
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.22em] text-brand">Registration submitted</p>
-          <h1 className="mt-2 text-2xl font-bold text-ink">{submittedPlate}</h1>
-          <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-            Please proceed to security. A guard will verify your details and confirm your host before entry.
-          </p>
-        </div>
-        <Button type="button" variant="outline" className="w-full" onClick={() => setSubmittedPlate("")}>
+      <div className="space-y-4">
+        <GlassCard padding="lg" className="space-y-4 text-center">
+          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/12 text-emerald-700">
+            <CheckCircle2 className="h-8 w-8" />
+          </span>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.22em] text-brand">Registration submitted</p>
+            <h1 className="mt-2 text-2xl font-bold text-ink">{issuedPass.plate}</h1>
+            <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+              Save this QR picture and show it to security. A guard will scan it, verify your details, and assign the confirmed host before entry.
+            </p>
+          </div>
+        </GlassCard>
+
+        <QrPass
+          token={issuedPass.token}
+          plate={issuedPass.plate}
+          visitorName={issuedPass.visitorName}
+          visitType="visitor"
+          validUntil={validUntil}
+          heading="Scan at gate before entering"
+        />
+
+        <QrPassShareButton
+          token={issuedPass.token}
+          plate={issuedPass.plate}
+          visitorName={issuedPass.visitorName}
+          visitType="visitor"
+          validUntil={validUntil}
+          heading="Visitor e-Check-In"
+          message="Please show this QR pass to security at the gate."
+          buttonLabel="Save QR picture"
+        />
+
+        <Button type="button" variant="outline" className="w-full" onClick={() => setIssuedPass(null)}>
           Submit another visitor
         </Button>
-      </GlassCard>
+      </div>
     );
   }
 
@@ -134,6 +205,47 @@ export function PublicVisitorRequestForm() {
         <Field label="Main visitor name" required>
           <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Full name" autoComplete="name" />
         </Field>
+        <Field
+          label="Main visitor identity document"
+          required
+          hint="Only the main visitor needs NRIC/passport details."
+        >
+          <div className="grid grid-cols-2 gap-2 rounded-2xl bg-white/40 p-1">
+            <button
+              type="button"
+              className={`h-10 rounded-xl text-sm font-bold transition ${
+                identityType === "nric" ? "bg-white text-brand shadow-sm" : "text-ink-soft"
+              }`}
+              onClick={() => setIdentityType("nric")}
+            >
+              NRIC
+            </button>
+            <button
+              type="button"
+              className={`h-10 rounded-xl text-sm font-bold transition ${
+                identityType === "passport" ? "bg-white text-brand shadow-sm" : "text-ink-soft"
+              }`}
+              onClick={() => setIdentityType("passport")}
+            >
+              Passport
+            </button>
+          </div>
+        </Field>
+
+        {identityType === "nric" ? (
+          <Field label="Main visitor NRIC number" required hint="Format: YYMMDD-PB-####.">
+            <Input value={nric} onChange={(event) => setNric(event.target.value)} placeholder="900101-14-1234" />
+          </Field>
+        ) : (
+          <Field label="Main visitor passport number" required>
+            <Input
+              value={passportNumber}
+              onChange={(event) => setPassportNumber(event.target.value.toUpperCase())}
+              placeholder="Passport number"
+              autoCapitalize="characters"
+            />
+          </Field>
+        )}
         <Field label="Contact number" required>
           <Input
             value={phoneNumber}
@@ -143,15 +255,48 @@ export function PublicVisitorRequestForm() {
             autoComplete="tel"
           />
         </Field>
-        <Field label="Company / organisation">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Visit type" required>
+            <Select value={visitType} onChange={(event) => changeVisitType(event.target.value)}>
+              {visitorTypeOptions.map((item) => (
+                <option key={item.code} value={item.code}>
+                  {item.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Purpose" required>
+            <Select
+              value={purpose}
+              onChange={(event) => setPurpose(event.target.value)}
+            >
+              {purposeOptions.map((item) => (
+                <option key={item.code} value={item.code}>
+                  {item.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+        <CompanyOrganisationField
+          value={organisation}
+          onChange={setOrganisation}
+          companies={companyOptions}
+          placeholder="Company name"
+        />
+        <Field label="Company represented">
           <Input
-            value={organisation}
-            onChange={(event) => setOrganisation(event.target.value)}
-            placeholder="Company name"
+            value={representingOrganisation}
+            onChange={(event) => setRepresentingOrganisation(event.target.value)}
+            placeholder="Visitor company or organisation"
             autoComplete="organization"
           />
         </Field>
-        <Field label="Person or department to visit" required>
+        <Field
+          label="Person or department to visit"
+          required={hostRequired}
+          hint={hostRequired ? undefined : "Optional for courier visits."}
+        >
           <Input
             value={requestedHostText}
             onChange={(event) => setRequestedHostText(event.target.value)}
@@ -166,15 +311,6 @@ export function PublicVisitorRequestForm() {
             autoCapitalize="characters"
             className="font-bold tracking-wide"
           />
-        </Field>
-        <Field label="Purpose" required>
-          <Select value={purpose} onChange={(event) => setPurpose(event.target.value as Purpose)}>
-            {PURPOSES.map((item) => (
-              <option key={item} value={item}>
-                {purposeLabel(item)}
-              </option>
-            ))}
-          </Select>
         </Field>
         <Field label="Number of visitors">
           <Input
@@ -229,48 +365,10 @@ export function PublicVisitorRequestForm() {
         )}
 
         <Field
-          label="Main visitor identity document"
-          required
-          hint="Only the main visitor needs NRIC/passport details."
+          label="Notes"
+          required={remarksRequired}
+          hint={remarksRequired ? "Required when visit type or purpose is Other." : undefined}
         >
-          <div className="grid grid-cols-2 gap-2 rounded-2xl bg-white/40 p-1">
-            <button
-              type="button"
-              className={`h-10 rounded-xl text-sm font-bold transition ${
-                identityType === "nric" ? "bg-white text-brand shadow-sm" : "text-ink-soft"
-              }`}
-              onClick={() => setIdentityType("nric")}
-            >
-              NRIC
-            </button>
-            <button
-              type="button"
-              className={`h-10 rounded-xl text-sm font-bold transition ${
-                identityType === "passport" ? "bg-white text-brand shadow-sm" : "text-ink-soft"
-              }`}
-              onClick={() => setIdentityType("passport")}
-            >
-              Passport
-            </button>
-          </div>
-        </Field>
-
-        {identityType === "nric" ? (
-          <Field label="Main visitor NRIC number" required hint="Format: YYMMDD-PB-####.">
-            <Input value={nric} onChange={(event) => setNric(event.target.value)} placeholder="900101-14-1234" />
-          </Field>
-        ) : (
-          <Field label="Main visitor passport number" required>
-            <Input
-              value={passportNumber}
-              onChange={(event) => setPassportNumber(event.target.value.toUpperCase())}
-              placeholder="Passport number"
-              autoCapitalize="characters"
-            />
-          </Field>
-        )}
-
-        <Field label="Notes">
           <Textarea
             value={remarks}
             onChange={(event) => setRemarks(event.target.value)}

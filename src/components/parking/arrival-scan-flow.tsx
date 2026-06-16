@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { Ban, CameraOff, CheckCircle2, LogIn, MessageCircle, Plus, ScanLine, ShieldCheck, X } from "lucide-react";
+import { Ban, CameraOff, CheckCircle2, LogIn, MessageCircle, Plus, ScanLine, Search, ShieldCheck, UserRound, X } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/ui/badge";
@@ -12,7 +12,11 @@ import { checkCameraSupport } from "@/lib/camera";
 import { labelize, purposeLabel, visitTypeLabel } from "@/lib/labels";
 import { PURPOSES, VISIT_TYPES, type Purpose, type VisitType } from "@/lib/enums";
 import { normalisePlate } from "@/lib/utils";
-import { buildHostConfirmationMessage, waLink } from "@/lib/whatsapp";
+import { visitTypeRequiresHost } from "@/lib/visit-rules";
+import { waCallLink } from "@/lib/whatsapp";
+import type { Employee } from "@/lib/types";
+import type { ParkingAdminOptions } from "@/lib/server/admin-options";
+import { CompanyOrganisationField } from "./company-organisation-field";
 
 const QrScanner = dynamic(() => import("./qr-scanner").then((module) => module.QrScanner), {
   ssr: false,
@@ -24,6 +28,7 @@ interface ScannedVisitor {
   name: string;
   phoneNumber: string;
   organisation: string | null;
+  representingOrganisation: string | null;
   identityType: "nric" | "passport" | null;
   nric: string | null;
   passportNumber: string | null;
@@ -69,6 +74,7 @@ interface VisitorDraft {
   name: string;
   phoneNumber: string;
   organisation: string;
+  representingOrganisation: string;
   identityType: "nric" | "passport";
   nric: string;
   passportNumber: string;
@@ -90,6 +96,7 @@ function toDraft(visitor: ScannedVisitor): VisitorDraft {
     name: visitor.name,
     phoneNumber: visitor.phoneNumber,
     organisation: visitor.organisation ?? "",
+    representingOrganisation: visitor.representingOrganisation ?? "",
     identityType: visitor.identityType === "passport" ? "passport" : "nric",
     nric: visitor.nric ?? "",
     passportNumber: visitor.passportNumber ?? "",
@@ -122,6 +129,10 @@ function parseAdditionalVehicleNumbers(value: string, primaryPlate: string) {
     });
 }
 
+function parseAdditionalVehicleRows(values: string[], primaryPlate: string) {
+  return parseAdditionalVehicleNumbers(values.join("\n"), primaryPlate);
+}
+
 function parsePastedNames(value: string) {
   return value
     .split(/[\n,;]+/)
@@ -129,7 +140,26 @@ function parsePastedNames(value: string) {
     .filter(Boolean);
 }
 
-export function ArrivalScanFlow() {
+function matchesHost(employee: Employee, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return [employee.name, employee.staffId, employee.department, employee.email]
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase().includes(q));
+}
+
+function requestedHostFromRemarks(value: string | null) {
+  const match = /^Requested host:\s*(.+)$/im.exec(value ?? "");
+  return match?.[1]?.trim() ?? "";
+}
+
+export function ArrivalScanFlow({
+  employees = [],
+  options,
+}: {
+  employees?: Employee[];
+  options?: ParkingAdminOptions;
+}) {
   const [scanning, setScanning] = useState(false);
   const [camMsg, setCamMsg] = useState<string | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -137,9 +167,21 @@ export function ArrivalScanFlow() {
   const [pendingToken, setPendingToken] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState<ScannedVisitor | null>(null);
   const [draft, setDraft] = useState<VisitorDraft | null>(null);
+  const [hostQuery, setHostQuery] = useState("");
+  const [hostSearchOpen, setHostSearchOpen] = useState(false);
   const [selectedVehicleNumber, setSelectedVehicleNumber] = useState("");
   const [checkedIn, setCheckedIn] = useState<ScannedVisitor | null>(null);
   const [submitting, setSubmitting] = useState<{ action: "approve" | "reject"; vehicleNumber: string } | null>(null);
+  const companyOptions = options?.companies ?? [];
+  const visitorTypeOptions = options?.visitorTypes?.length
+    ? options.visitorTypes
+    : VISIT_TYPES.map((code, index) => ({ id: index + 1, code, label: labelize(code) }));
+  const purposeOptions = options?.purposes?.length
+    ? options.purposes
+    : PURPOSES.map((code, index) => ({ id: index + 1, code, label: purposeLabel(code) }));
+  const visitTypePurposeRules = options?.visitTypePurposeRules ?? [
+    { id: "default-courier", visitorTypeCode: "courier", purposeCode: "delivery" },
+  ];
 
   function startScan() {
     const support = checkCameraSupport();
@@ -166,6 +208,8 @@ export function ArrivalScanFlow() {
       setPendingToken(token);
       setReviewing(payload.visitor);
       setDraft(toDraft(payload.visitor));
+      setHostQuery(payload.visitor.host?.name || requestedHostFromRemarks(payload.visitor.remarks) || payload.visitor.hostDepartment || "");
+      setHostSearchOpen(false);
       setSelectedVehicleNumber(payload.visitor.vehicles?.find((vehicle: ScannedVehicle) => vehicle.status === "pending")?.vehicleNumber ?? payload.visitor.vehicleNumber);
       setScanning(false);
     } catch (error) {
@@ -177,6 +221,7 @@ export function ArrivalScanFlow() {
   async function approveArrival(vehicleNumber = selectedVehicleNumber) {
     if (!pendingToken || !draft || !vehicleNumber) return;
 
+    const additionalVehicleNumbers = parseAdditionalVehicleRows(draft.additionalVehicleNumbers, draft.vehicleNumber);
     setSubmitting({ action: "approve", vehicleNumber });
     setSelectedVehicleNumber(vehicleNumber);
     setScanError(null);
@@ -191,6 +236,7 @@ export function ArrivalScanFlow() {
           vehicleNumber,
           visitor: {
             ...draft,
+            additionalVehicleNumbers,
             otherVisitorNames: (Number(draft.visitorCount) || 0) > 1 ? draft.otherVisitorNames : [],
           },
         }),
@@ -205,6 +251,8 @@ export function ArrivalScanFlow() {
       setDraft(null);
       setSelectedVehicleNumber("");
       setPendingToken(null);
+      setHostQuery("");
+      setHostSearchOpen(false);
     } catch (error) {
       setScanError(error instanceof Error ? error.message : "Unable to approve this arrival.");
     } finally {
@@ -252,6 +300,8 @@ export function ArrivalScanFlow() {
     setDraft(null);
     setSelectedVehicleNumber("");
     setPendingToken(null);
+    setHostQuery("");
+    setHostSearchOpen(false);
     setScanError(null);
   }
 
@@ -286,23 +336,72 @@ export function ArrivalScanFlow() {
     });
   }
 
+  function updateDraftAdditionalVehicleRow(index: number, value: string) {
+    if (!draft) return;
+
+    const pastedVehicleNumbers = parseAdditionalVehicleNumbers(value, draft.vehicleNumber);
+    if (pastedVehicleNumbers.length > 1) {
+      const next = [...draft.additionalVehicleNumbers];
+      next.splice(index, 1, ...pastedVehicleNumbers);
+      setDraft({ ...draft, additionalVehicleNumbers: parseAdditionalVehicleRows(next, draft.vehicleNumber) });
+      return;
+    }
+
+    const next = [...draft.additionalVehicleNumbers];
+    next[index] = value.toUpperCase();
+    setDraft({ ...draft, additionalVehicleNumbers: next });
+  }
+
+  function removeDraftAdditionalVehicleRow(index: number) {
+    if (!draft) return;
+    setDraft({
+      ...draft,
+      additionalVehicleNumbers: draft.additionalVehicleNumbers.filter((_, itemIndex) => itemIndex !== index),
+    });
+  }
+
+  function updateDraftVisitType(value: VisitType) {
+    if (!draft) return;
+    const rule = visitTypePurposeRules.find((item) => item.visitorTypeCode === value);
+    setDraft({ ...draft, typeCode: value, purpose: rule?.purposeCode ?? draft.purpose });
+  }
+
   const remarksRequired = Boolean(draft && (draft.typeCode === "other" || draft.purpose === "other"));
   const hasIdentityDocument = draft
     ? draft.identityType === "nric"
       ? draft.nric.trim()
       : draft.passportNumber.trim()
     : false;
+  const selectedHost = draft ? employees.find((employee) => employee.staffId === draft.hostStaffId) : undefined;
+  const hostRequired = draft ? visitTypeRequiresHost(draft.typeCode) : true;
+  const cleanAdditionalVehicleNumbers = draft ? parseAdditionalVehicleRows(draft.additionalVehicleNumbers, draft.vehicleNumber) : [];
+  const additionalVehicleRowsValid = draft
+    ? draft.additionalVehicleNumbers.every((plate) => !plate.trim() || normalisePlate(plate).length >= 3)
+    : false;
+  const hasConfirmedHost = draft
+    ? employees.length > 0
+      ? Boolean(selectedHost)
+      : Boolean(draft.hostStaffId.trim())
+    : false;
   const canSubmitDecision = Boolean(
     pendingToken &&
-      draft?.vehicleNumber.trim() &&
+      draft &&
+      draft.vehicleNumber.trim() &&
       draft.name.trim() &&
       draft.phoneNumber.trim() &&
       hasIdentityDocument &&
+      (!hostRequired || hasConfirmedHost) &&
+      additionalVehicleRowsValid &&
       (!remarksRequired || draft.remarks.trim()) &&
       submitting === null,
   );
 
-  const draftVehicleNumbers = draft ? [draft.vehicleNumber, ...draft.additionalVehicleNumbers] : [];
+  const draftVehicleNumbers = draft ? [draft.vehicleNumber, ...cleanAdditionalVehicleNumbers] : [];
+  const hostResults = useMemo(
+    () => employees.filter((employee) => matchesHost(employee, hostQuery)).slice(0, 6),
+    [employees, hostQuery],
+  );
+  const requestedHost = requestedHostFromRemarks(draft?.remarks ?? null) || (!selectedHost ? draft?.hostDepartment ?? "" : "");
   const hasMultipleVehicles = draftVehicleNumbers.length > 1;
   const pendingVehicleCount =
     reviewing?.vehicles?.filter((vehicle) => vehicle.status === "pending").length ??
@@ -334,6 +433,9 @@ export function ArrivalScanFlow() {
           </div>
           <Row label="Main visitor" value={checkedIn.name} />
           <Row label="Contact" value={checkedIn.phoneNumber} />
+          {checkedIn.representingOrganisation && (
+            <Row label="Company represented" value={checkedIn.representingOrganisation} />
+          )}
           {(checkedIn.additionalVehicleNumbers?.length ?? 0) > 0 && (
             <Row label="Other plates" value={checkedIn.additionalVehicleNumbers.join(", ")} />
           )}
@@ -404,16 +506,59 @@ export function ArrivalScanFlow() {
             />
           </Field>
 
-          <Field label="Additional vehicle plates">
-            <Textarea
-              value={draft.additionalVehicleNumbers.join("\n")}
-              onChange={(event) => setDraft({
-                ...draft,
-                additionalVehicleNumbers: parseAdditionalVehicleNumbers(event.target.value, draft.vehicleNumber),
-              })}
-              placeholder="One plate per line"
-            />
-          </Field>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <span className="block text-sm font-semibold text-ink-soft">Additional vehicle plates</span>
+                <span className="text-xs font-medium text-ink-faint">
+                  {cleanAdditionalVehicleNumbers.length > 0
+                    ? `${cleanAdditionalVehicleNumbers.length} linked vehicle${cleanAdditionalVehicleNumbers.length === 1 ? "" : "s"}`
+                    : "Add only when the same visitor has another vehicle"}
+                </span>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0 border-dashed bg-white/30"
+                onClick={() => setDraft({ ...draft, additionalVehicleNumbers: [...draft.additionalVehicleNumbers, ""] })}
+              >
+                <Plus className="h-4 w-4" /> Add vehicle
+              </Button>
+            </div>
+
+            {draft.additionalVehicleNumbers.length > 0 && (
+              <div className="space-y-2">
+                {draft.additionalVehicleNumbers.map((additionalPlate, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <Input
+                      value={additionalPlate}
+                      onChange={(event) => updateDraftAdditionalVehicleRow(index, event.target.value)}
+                      onBlur={() => setDraft({
+                        ...draft,
+                        additionalVehicleNumbers: parseAdditionalVehicleRows(draft.additionalVehicleNumbers, draft.vehicleNumber),
+                      })}
+                      placeholder={`Additional plate ${index + 1}`}
+                      inputMode="text"
+                      autoCapitalize="characters"
+                      className="font-bold tracking-wide"
+                      aria-label={`Additional vehicle ${index + 1}`}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="shrink-0 rounded-xl bg-white/55 text-ink-soft"
+                      aria-label={`Remove additional vehicle ${index + 1}`}
+                      onClick={() => removeDraftAdditionalVehicleRow(index)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <div className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Vehicle decisions</p>
@@ -496,27 +641,9 @@ export function ArrivalScanFlow() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Main visitor" required>
-              <Input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
-            </Field>
-            <Field label="Main visitor contact" required>
-              <Input
-                value={draft.phoneNumber}
-                onChange={(event) => setDraft({ ...draft, phoneNumber: event.target.value })}
-                inputMode="tel"
-              />
-            </Field>
-          </div>
-
-          <Field label="Company / organisation">
-            <Input
-              value={draft.organisation}
-              onChange={(event) => setDraft({ ...draft, organisation: event.target.value })}
-              placeholder="Company or organisation"
-            />
+          <Field label="Main visitor" required>
+            <Input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
           </Field>
-
           <Field
             label="Main visitor identity document"
             required
@@ -566,24 +693,46 @@ export function ArrivalScanFlow() {
             </Field>
           )}
 
+          <Field label="Main visitor contact" required>
+            <Input
+              value={draft.phoneNumber}
+              onChange={(event) => setDraft({ ...draft, phoneNumber: event.target.value })}
+              inputMode="tel"
+            />
+          </Field>
+
+          <CompanyOrganisationField
+            value={draft.organisation}
+            onChange={(organisation) => setDraft({ ...draft, organisation })}
+            companies={companyOptions}
+          />
+
+          <Field label="Company represented">
+            <Input
+              value={draft.representingOrganisation}
+              onChange={(event) => setDraft({ ...draft, representingOrganisation: event.target.value })}
+              placeholder="Visitor company or organisation"
+            />
+          </Field>
+
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Visit type" required>
               <Select
                 value={draft.typeCode}
-                onChange={(event) => setDraft({ ...draft, typeCode: event.target.value as VisitType })}
+                onChange={(event) => updateDraftVisitType(event.target.value)}
               >
-                {VISIT_TYPES.map((type) => (
-                  <option key={type} value={type}>{labelize(type)}</option>
+                {visitorTypeOptions.map((type) => (
+                  <option key={type.code} value={type.code}>{type.label}</option>
                 ))}
               </Select>
             </Field>
             <Field label="Purpose" required>
               <Select
                 value={draft.purpose}
-                onChange={(event) => setDraft({ ...draft, purpose: event.target.value as Purpose })}
+                onChange={(event) => setDraft({ ...draft, purpose: event.target.value })}
               >
-                {PURPOSES.map((purpose) => (
-                  <option key={purpose} value={purpose}>{purposeLabel(purpose)}</option>
+                {purposeOptions.map((purpose) => (
+                  <option key={purpose.code} value={purpose.code}>{purpose.label}</option>
                 ))}
               </Select>
             </Field>
@@ -662,27 +811,84 @@ export function ArrivalScanFlow() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Host ID">
-              <Input value={draft.hostStaffId} onChange={(event) => setDraft({ ...draft, hostStaffId: event.target.value })} />
-            </Field>
-            <Field label="Host department">
-              <Input
-                value={draft.hostDepartment}
-                onChange={(event) => setDraft({ ...draft, hostDepartment: event.target.value })}
-              />
-            </Field>
-          </div>
+          <div className="space-y-2">
+            {requestedHost && (
+              <div className="rounded-2xl bg-white/45 px-3.5 py-3">
+                <p className="text-xs font-bold uppercase tracking-wide text-ink-faint">Requested host</p>
+                <p className="mt-1 text-sm font-semibold text-ink">{requestedHost}</p>
+              </div>
+            )}
 
-          {(reviewing.host || draft.hostStaffId || draft.hostDepartment) && (
-            <HostContactBlock
-              host={reviewing.host ?? undefined}
-              fallbackStaffId={draft.hostStaffId}
-              fallbackDepartment={draft.hostDepartment}
-              visitorName={draft.name}
-              plate={selectedVehicleNumber || draft.vehicleNumber}
-            />
-          )}
+            <span className="block text-sm font-semibold text-ink-soft">
+              Assign confirmed host {hostRequired && <span className="text-brand">*</span>}
+            </span>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+              <Input
+                value={hostQuery}
+                onChange={(event) => {
+                  setHostQuery(event.target.value);
+                  setDraft({ ...draft, hostStaffId: "", hostDepartment: "" });
+                  setHostSearchOpen(true);
+                }}
+                onFocus={() => setHostSearchOpen(true)}
+                placeholder="Search host name or department"
+                className="pl-11"
+                role="combobox"
+                aria-label={`Assign host for ${draft.vehicleNumber}`}
+                aria-expanded={hostSearchOpen}
+                aria-required={hostRequired}
+              />
+              {hostQuery && (
+                <button
+                  type="button"
+                  aria-label="Clear host"
+                  className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-ink-faint hover:bg-white/70 hover:text-brand"
+                  onClick={() => {
+                    setHostQuery("");
+                    setDraft({ ...draft, hostStaffId: "", hostDepartment: "" });
+                    setHostSearchOpen(false);
+                  }}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <span className="block text-xs text-ink-faint">
+              {hostRequired ? "Search the HR employee directory before approving arrival." : "Optional for courier visits."}
+            </span>
+
+            {hostSearchOpen && (
+              <div className="overflow-hidden rounded-2xl border border-white/70 bg-white/90 shadow-lift backdrop-blur-md">
+                {hostResults.length > 0 ? (
+                  hostResults.map((host) => (
+                    <button
+                      key={host.staffId}
+                      type="button"
+                      className="flex w-full items-center gap-3 px-3.5 py-3 text-left transition hover:bg-brand/5 focus:bg-brand/5 focus:outline-none"
+                      onClick={() => {
+                        setDraft({ ...draft, hostStaffId: host.staffId, hostDepartment: host.department });
+                        setHostQuery(host.name);
+                        setHostSearchOpen(false);
+                      }}
+                    >
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-ink-faint/10 text-ink-soft">
+                        <UserRound className="h-5 w-5" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-bold text-ink">{host.name}</span>
+                        <span className="block truncate text-xs font-semibold text-ink-soft">{host.department}</span>
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <p className="px-3.5 py-3 text-sm text-ink-faint">No matching host found.</p>
+                )}
+              </div>
+            )}
+
+            {selectedHost && <HostContactBlock host={selectedHost} />}
+          </div>
 
           <Field
             label="Remarks"
@@ -765,18 +971,12 @@ function HostContactBlock({
   host,
   fallbackStaffId,
   fallbackDepartment,
-  visitorName,
-  plate,
 }: {
   host?: ScannedHost;
   fallbackStaffId?: string;
   fallbackDepartment?: string;
-  visitorName?: string;
-  plate?: string;
 }) {
-  const whatsappHref = host?.phone
-    ? waLink(host.phone, buildHostConfirmationMessage({ visitorName, plate }))
-    : null;
+  const whatsappCallHref = host?.phone ? waCallLink(host.phone) : null;
 
   return (
     <div className="rounded-2xl border border-white/60 bg-white/45 px-3.5 py-3">
@@ -790,15 +990,15 @@ function HostContactBlock({
             {host?.extension ? ` · Ext ${host.extension}` : ""}
           </p>
         </div>
-        {whatsappHref && (
+        {whatsappCallHref && (
           <a
-            href={whatsappHref}
+            href={whatsappCallHref}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex shrink-0 items-center gap-1 rounded-full border border-brand/30 bg-white/50 px-3 py-1.5 text-xs font-bold text-brand"
           >
             <MessageCircle className="h-3.5 w-3.5" />
-            WhatsApp
+            WhatsApp Call
           </a>
         )}
       </div>

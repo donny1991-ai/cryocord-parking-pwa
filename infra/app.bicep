@@ -24,6 +24,9 @@ param databaseSsl string = 'true'
 @description('Whether Node should reject unauthorized Postgres SSL certificates.')
 param databaseSslRejectUnauthorized string = 'true'
 
+@description('Maximum Postgres connections per app replica.')
+param databasePoolMax string = '3'
+
 @description('Key id label for the active QR signing key.')
 param parkingQrKeyId string = 'prod'
 
@@ -68,6 +71,13 @@ param smtpFrom string = ''
 @description('Optional SMTP password for OTP email delivery. Leave empty to add it manually on the Container App.')
 param smtpPass string = ''
 
+@secure()
+@description('Optional Redis connection URL for application-level caching, for example rediss://:<key>@<host>:6380. Leave empty to disable Redis wiring.')
+param redisUrl string = ''
+
+@description('Namespace prefix for application Redis keys. Useful when sharing an existing Redis instance.')
+param redisKeyPrefix string = 'cryocord-parking:${environmentName}:'
+
 @description('Whether SMTP should use implicit TLS.')
 param smtpSecure string = 'true'
 
@@ -81,13 +91,16 @@ param smtpEhloDomain string = 'cryocord-parking.azurecontainerapps.io'
 param minReplicas int = 1
 
 @description('Maximum Container App replicas.')
-param maxReplicas int = 3
+param maxReplicas int = 5
 
 @description('CPU cores assigned to each app replica.')
-param cpuCores string = '0.5'
+param cpuCores string = '1.0'
 
 @description('Memory assigned to each app replica.')
-param memory string = '1Gi'
+param memory string = '2Gi'
+
+@description('HTTP concurrent request threshold that triggers Container Apps scale-out.')
+param httpScaleConcurrentRequests string = '25'
 
 @description('Tags applied to all resources.')
 param tags object = {}
@@ -183,6 +196,11 @@ var secretDefinitions = concat([
     name: 'smtp-pass'
     value: smtpPass
   }
+], empty(redisUrl) ? [] : [
+  {
+    name: 'redis-url'
+    value: redisUrl
+  }
 ], empty(authOtpSecret) ? [] : [
   {
     name: 'auth-otp-secret'
@@ -222,6 +240,10 @@ var appEnv = concat([
   {
     name: 'DATABASE_SSL_REJECT_UNAUTHORIZED'
     value: databaseSslRejectUnauthorized
+  }
+  {
+    name: 'DATABASE_POOL_MAX'
+    value: databasePoolMax
   }
   {
     name: 'PARKING_QR_KEY_ID'
@@ -283,6 +305,10 @@ var appEnv = concat([
     name: 'SMTP_EHLO_DOMAIN'
     value: smtpEhloDomain
   }
+  {
+    name: 'CACHE_REDIS_KEY_PREFIX'
+    value: redisKeyPrefix
+  }
 ], empty(smtpFrom) ? [] : [
   {
     name: 'SMTP_FROM'
@@ -292,6 +318,11 @@ var appEnv = concat([
   {
     name: 'AUTH_OTP_SECRET'
     secretRef: 'auth-otp-secret'
+  }
+], empty(redisUrl) ? [] : [
+  {
+    name: 'CACHE_REDIS_URL'
+    secretRef: 'redis-url'
   }
 ])
 
@@ -370,6 +401,16 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       scale: {
         minReplicas: minReplicas
         maxReplicas: maxReplicas
+        rules: [
+          {
+            name: 'http-concurrency'
+            http: {
+              metadata: {
+                concurrentRequests: httpScaleConcurrentRequests
+              }
+            }
+          }
+        ]
       }
     }
   }

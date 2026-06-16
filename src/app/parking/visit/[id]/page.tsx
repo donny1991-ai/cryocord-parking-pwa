@@ -7,7 +7,6 @@ import {
   DoorOpen,
   FileClock,
   Hash,
-  MessageCircle,
   Phone,
   ShieldCheck,
   UserRound,
@@ -15,7 +14,7 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { GlassCard } from "@/components/ui/glass-card";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { StatusPill, Chip } from "@/components/ui/badge";
 import { QrPass } from "@/components/parking/qr-pass";
 import { QrPassShareButton } from "@/components/parking/qr-pass-share-button";
@@ -23,13 +22,15 @@ import { IdentityDocumentRow } from "@/components/parking/identity-document-row"
 import { VisitorCancelControl } from "@/components/parking/visitor-cancel-control";
 import { VisitorFlagControl } from "@/components/parking/visitor-flag-control";
 import { EntrySnapshotControl } from "@/components/parking/entry-snapshot-control";
+import { VisitorHostEditControl } from "@/components/parking/visitor-host-edit-control";
 import { getVisitAuditTrail, getVisitById } from "@/lib/server/parking-data";
 import { requireParkingPageUser } from "@/lib/server/page-auth";
+import { getHostDirectory } from "@/lib/server/hosts";
+import { isVisitorHostEditOpen } from "@/lib/server/admin-visitors";
 import { cn, formatDate, formatDateTime } from "@/lib/utils";
 import { purposeLabel, visitTypeLabel } from "@/lib/labels";
-import { buildHostConfirmationMessage, buildPassMessage, waLink } from "@/lib/whatsapp";
+import { buildPassMessage, waLink } from "@/lib/whatsapp";
 import { canShareVisitPass, getVisitPassHeading } from "@/lib/visitor-pass";
-import type { Employee } from "@/lib/types";
 
 async function getRequestOrigin() {
   const configuredOrigin = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
@@ -46,7 +47,7 @@ async function getRequestOrigin() {
 export default async function VisitDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const actor = await requireParkingPageUser();
   const { id } = await params;
-  const [visit, origin] = await Promise.all([getVisitById(id), getRequestOrigin()]);
+  const [visit, origin, employees] = await Promise.all([getVisitById(id), getRequestOrigin(), getHostDirectory()]);
   if (!visit) notFound();
 
   const trail = await getVisitAuditTrail(visit.id);
@@ -98,6 +99,7 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
     pendingPassMessage
       ? waLink(visit.visitorContact, pendingPassMessage)
       : null;
+  const canEditHost = isVisitorHostEditOpen(visit.visitDate ?? null, visit.createdAt);
 
   return (
     <div className="space-y-5">
@@ -179,6 +181,9 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
         {visit.organisation && (
           <DetailRow icon={Hash} label="Company / organisation" value={visit.organisation} />
         )}
+        {visit.representingOrganisation && (
+          <DetailRow icon={Hash} label="Company represented" value={visit.representingOrganisation} />
+        )}
         {(visit.additionalPlates?.length ?? 0) > 0 && (
           <DetailRow icon={Hash} label="Other plates" value={visit.additionalPlates!.join(", ")} />
         )}
@@ -198,13 +203,14 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
         )}
       </GlassCard>
 
-      {(visit.host || visit.hostStaffId || visit.hostDepartment) && (
-        <HostConfirmationCard
-          host={visit.host}
-          fallbackStaffId={visit.hostStaffId}
-          fallbackDepartment={visit.hostDepartment}
-          visitorName={visit.visitorName}
-          plate={visit.plate}
+      {(visit.host || visit.hostStaffId || visit.hostDepartment || canEditHost) && (
+        <VisitorHostEditControl
+          visitId={visit.id}
+          employees={employees}
+          currentHost={visit.host}
+          currentHostStaffId={visit.hostStaffId}
+          currentHostDepartment={visit.hostDepartment}
+          canEdit={canEditHost}
         />
       )}
 
@@ -321,57 +327,6 @@ export default async function VisitDetailPage({ params }: { params: Promise<{ id
         </div>
       )}
     </div>
-  );
-}
-
-function HostConfirmationCard({
-  host,
-  fallbackStaffId,
-  fallbackDepartment,
-  visitorName,
-  plate,
-}: {
-  host?: Employee;
-  fallbackStaffId?: string;
-  fallbackDepartment?: string;
-  visitorName: string;
-  plate: string;
-}) {
-  const phone = host?.phone;
-  const whatsappHref = phone
-    ? waLink(phone, buildHostConfirmationMessage({ visitorName, plate }))
-    : null;
-  return (
-    <GlassCard padding="lg" className="space-y-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-bold uppercase tracking-wide text-ink-faint">Host confirmation</p>
-          <p className="mt-1 text-lg font-bold text-ink">{host?.name ?? fallbackStaffId ?? "Host not found"}</p>
-          <p className="text-sm text-ink-faint">{host?.department ?? fallbackDepartment ?? "Department unavailable"}</p>
-        </div>
-        {whatsappHref ? (
-          <a
-            href={whatsappHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")}
-          >
-            <MessageCircle className="h-4 w-4" />
-            WhatsApp
-          </a>
-        ) : null}
-      </div>
-      <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
-        <div className="rounded-2xl border border-white/60 bg-white/45 px-3 py-2">
-          <p className="text-xs text-ink-faint">Phone</p>
-          <p className="font-semibold text-ink">{phone ?? "No phone number in HR directory"}</p>
-        </div>
-        <div className="rounded-2xl border border-white/60 bg-white/45 px-3 py-2">
-          <p className="text-xs text-ink-faint">Extension</p>
-          <p className="font-semibold text-ink">{host?.extension ?? "—"}</p>
-        </div>
-      </div>
-    </GlassCard>
   );
 }
 

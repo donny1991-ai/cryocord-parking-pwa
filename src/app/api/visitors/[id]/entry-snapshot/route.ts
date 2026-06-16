@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { authErrorResponse, requireParkingUser } from "@/lib/server/auth";
+import { invalidateParkingReadModelCache } from "@/lib/server/parking-cache";
 import { EntrySnapshotNotEligibleError, captureVisitorEntrySnapshot } from "@/lib/server/entry-snapshots";
 import {
   ENTRY_SNAPSHOT_ALLOWED_TYPES,
@@ -42,6 +43,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       contentType: snapshot.type,
     });
 
+    await invalidateParkingReadModelCache();
     revalidateVisitorPages(id);
     return jsonWithRequestId({ snapshot: result, requestId }, 201, requestId);
   } catch (error) {

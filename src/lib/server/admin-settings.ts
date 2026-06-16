@@ -2,6 +2,8 @@ import "server-only";
 import type { EntityManager } from "typeorm";
 import { ParkingSettingSchema } from "@/db/entities";
 import { getParkingDataSource } from "@/db/client";
+import { cacheJson } from "@/lib/server/cache";
+import { invalidateSettingsReadModelCache, PARKING_CACHE_KEYS } from "@/lib/server/parking-cache";
 import { AuthError, type AuthenticatedParkingUser } from "@/lib/server/auth";
 
 const AUTH_SESSION_KEY = "auth_session_expires_hours";
@@ -46,7 +48,7 @@ function daysFromValue(value: Record<string, unknown> | null | undefined) {
     : DEFAULT_SETTINGS.overstayAllowedDays;
 }
 
-export async function getParkingSettings(manager?: EntityManager): Promise<ParkingAdminSettings> {
+async function loadParkingSettings(manager?: EntityManager): Promise<ParkingAdminSettings> {
   const activeManager = manager ?? (await getParkingDataSource()).manager;
   let rows;
   try {
@@ -68,6 +70,11 @@ export async function getParkingSettings(manager?: EntityManager): Promise<Parki
     authSessionExpiresSeconds: authSessionExpiresHours * 60 * 60,
     overstayAllowedDays,
   };
+}
+
+export async function getParkingSettings(manager?: EntityManager): Promise<ParkingAdminSettings> {
+  if (manager) return loadParkingSettings(manager);
+  return cacheJson(PARKING_CACHE_KEYS.settings, 5 * 60, () => loadParkingSettings());
 }
 
 export async function updateParkingSettings(
@@ -97,5 +104,6 @@ export async function updateParkingSettings(
     );
   });
 
+  await invalidateSettingsReadModelCache();
   return getParkingSettings();
 }

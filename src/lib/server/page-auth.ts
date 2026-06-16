@@ -10,7 +10,7 @@ import {
 import type { ParkingUserRole } from "@/db/entities";
 
 export async function requireParkingPageUser(
-  allowedRoles: ParkingUserRole[] = ["guard", "supervisor", "admin"],
+  allowedRoles: ParkingUserRole[] = ["guard", "admin"],
 ): Promise<AuthenticatedParkingUser> {
   const token = (await cookies()).get(PARKING_SESSION_COOKIE)?.value;
   if (!token) {

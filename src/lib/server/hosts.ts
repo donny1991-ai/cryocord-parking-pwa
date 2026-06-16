@@ -2,7 +2,10 @@ import "server-only";
 import { Brackets, IsNull } from "typeorm";
 import { HrUserSchema } from "@/db/entities";
 import { getParkingDataSource } from "@/db/client";
+import { cacheJson } from "@/lib/server/cache";
+import { PARKING_CACHE_KEYS } from "@/lib/server/parking-cache";
 import type { Employee } from "@/lib/types";
+import { revealHrProtectedText } from "./hr-data-protection";
 
 function normaliseHostKey(value: string | null | undefined) {
   return String(value ?? "").trim().toLowerCase();
@@ -21,13 +24,13 @@ function toEmployee(user: {
     staffId: user.empNo?.trim() || String(user.id),
     name: user.name,
     department: user.department?.deletedAt ? "Unassigned" : user.department?.name ?? "Unassigned",
-    phone: user.phone?.trim() || undefined,
+    phone: revealHrProtectedText(user.phone) ?? undefined,
     extension: user.extension?.trim() || undefined,
     email: user.email,
   };
 }
 
-export async function getHostDirectory(): Promise<Employee[]> {
+async function loadHostDirectory(): Promise<Employee[]> {
   let users;
   try {
     const ds = await getParkingDataSource();
@@ -41,6 +44,10 @@ export async function getHostDirectory(): Promise<Employee[]> {
   }
 
   return users.map(toEmployee);
+}
+
+export async function getHostDirectory(): Promise<Employee[]> {
+  return cacheJson(PARKING_CACHE_KEYS.hosts, 10 * 60, loadHostDirectory);
 }
 
 export async function getHostByStaffId(staffId: string | null | undefined): Promise<Employee | null> {

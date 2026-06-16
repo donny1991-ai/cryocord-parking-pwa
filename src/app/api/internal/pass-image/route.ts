@@ -1,0 +1,58 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { getInternalApiCredential, getInternalApiKey, isInternalApiCredentialValid } from "@/lib/server/internal-api-auth";
+import { renderVisitorPassImagePng, visitorPassImageFilename } from "@/lib/server/pass-image";
+import { getPublicVisitorPass } from "@/lib/server/visitors";
+import { formatDate, formatDateTime } from "@/lib/utils";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function POST(request: NextRequest) {
+  const expectedKey = getInternalApiKey();
+  if (!expectedKey) {
+    return NextResponse.json({ error: "Parking internal API is not configured." }, { status: 503 });
+  }
+
+  const credential = getInternalApiCredential(request);
+  if (!isInternalApiCredentialValid(credential, expectedKey)) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
+  let token = "";
+  try {
+    const body = await request.json();
+    token = String(body?.token ?? "").trim();
+  } catch {
+    return NextResponse.json({ error: "JSON body is required." }, { status: 400 });
+  }
+
+  if (!token) {
+    return NextResponse.json({ error: "Pass token is required." }, { status: 400 });
+  }
+
+  const pass = await getPublicVisitorPass(token);
+  if (pass.state !== "active") {
+    return NextResponse.json({ error: pass.message }, { status: 404 });
+  }
+
+  const png = await renderVisitorPassImagePng({
+    token: pass.token,
+    plate: pass.plate,
+    additionalPlates: pass.additionalPlates,
+    visitorName: pass.visitorName,
+    visitTypeLabel: pass.visitTypeLabel,
+    visitDate: formatDate(pass.visitDate ?? pass.validUntil),
+    validUntil: formatDateTime(pass.validUntil),
+  });
+  const responseBody = new ArrayBuffer(png.byteLength);
+  new Uint8Array(responseBody).set(png);
+
+  return new NextResponse(responseBody, {
+    status: 200,
+    headers: {
+      "Content-Type": "image/png",
+      "Content-Disposition": `attachment; filename="${visitorPassImageFilename(pass.plate)}"`,
+      "Cache-Control": "no-store",
+    },
+  });
+}

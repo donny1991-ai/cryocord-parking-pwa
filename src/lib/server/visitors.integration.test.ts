@@ -1,13 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { POST as createPublicVisitorRequestEndpoint } from "@/app/api/public/visitor-requests/route";
-import { PATCH as reviewVisitorRequestEndpoint } from "@/app/api/visitor-requests/[id]/route";
 import { POST as createVisitorEndpoint } from "@/app/api/visitors/route";
 import { POST as scanVisitorEndpoint } from "@/app/api/visitors/scan/route";
 import {
   DELETE as clearVisitorFlagEndpoint,
   PUT as flagVisitorEndpoint,
 } from "@/app/api/admin/visitors/[id]/flag/route";
+import { PATCH as updateVisitorHostEndpoint } from "@/app/api/visitors/[id]/host/route";
 import { POST as createVehicleEndpoint } from "@/app/api/admin/vehicles/route";
 import {
   DELETE as deleteVehicleEndpoint,
@@ -17,7 +17,6 @@ import { POST as cancelVisitorEndpoint } from "@/app/api/visitors/[id]/cancel/ro
 import { AppDataSource } from "@/db/data-source";
 import {
   VehicleSchema,
-  VisitorRequestSchema,
   VisitorScanEventSchema,
   VisitorSchema,
   VisitorVehicleSchema,
@@ -29,7 +28,7 @@ import { seedParkingUser } from "@/test/seeders/parking-user.seeder";
 import { seedVisitorTypes } from "@/test/seeders/visitor-type.seeder";
 import { signTestSupabaseAccessToken } from "@/test/auth-token";
 import { getPreRegistrationTokenExpiresAt, signVisitToken } from "@/lib/qr";
-import { getParkingSnapshot, getParkingVehicles, getVisitById } from "./parking-data";
+import { getParkingSnapshot, getParkingVehicles, getVisitAuditTrail, getVisitById } from "./parking-data";
 import { getHostDirectory } from "./hosts";
 import {
   createVisitorPass,
@@ -697,13 +696,22 @@ describe("visitor pass database flow", () => {
   });
 
   it("hides the public QR pass after checkout", async () => {
-    const issued = await createVisitorPass(createVisitorInputFactory({ typeCode: "visitor" }));
+    const input = createVisitorInputFactory({
+      name: "Public Pass Visitor",
+      vehicleNumber: "PUB 100",
+      typeCode: "visitor",
+    });
+    const issued = await createVisitorPass(input);
 
     await expect(getPublicVisitorPass(issued.token)).resolves.toMatchObject({
       state: "active",
       status: "pending",
       token: issued.token,
       validUntil: issued.tokenExpiresAt,
+      visitorName: input.name,
+      plate: input.vehicleNumber,
+      additionalPlates: [],
+      visitTypeLabel: "Visitor",
     });
 
     await scanVisitorPass({ token: issued.token, action: "auto" });
@@ -1093,7 +1101,7 @@ describe("visitor pass database flow", () => {
     expect(checkedIn.status).toBe("checked_in");
   });
 
-  it("accepts public wall-QR visitor requests without exposing HR host lookup", async () => {
+  it("accepts public wall-QR visitor requests as pending visitor passes", async () => {
     const response = await createPublicVisitorRequestEndpoint(
       jsonRequest("/api/public/visitor-requests", {
         name: "Wall QR Visitor",
@@ -1112,23 +1120,72 @@ describe("visitor pass database flow", () => {
 
     expect(response.status).toBe(201);
     const payload = await response.json();
-    expect(payload.request).toMatchObject({
+    expect(payload.visitor).toMatchObject({
       name: "Wall QR Visitor",
       vehicleNumber: "WALL 100",
-      requestedHostText: "AI Projects Lab",
-      status: "submitted",
+      status: "pending",
       otherVisitorNames: ["Second Visitor", "Third Visitor"],
+      hostStaffId: null,
     });
+    expect(payload.token).toEqual(expect.any(String));
+    expect(payload.tokenExpiresAt).toEqual(expect.any(String));
+    expect(payload.requestedHostText).toBe("AI Projects Lab");
 
-    await expect(AppDataSource.manager.count(VisitorSchema)).resolves.toBe(0);
-    await expect(AppDataSource.manager.findOneByOrFail(VisitorRequestSchema, { id: payload.request.id })).resolves.toMatchObject({
+    await expect(AppDataSource.manager.count(VisitorSchema)).resolves.toBe(1);
+    const saved = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: payload.visitor.id });
+    expect(saved).toMatchObject({
       vehicleNumber: "WALL 100",
-      status: "submitted",
-      requestedHostText: "AI Projects Lab",
+      status: "pending",
+      hostStaffId: null,
     });
+    expect(saved.remarks).toContain("Requested host: AI Projects Lab");
+
+    const snapshot = await getParkingSnapshot();
+    expect(snapshot.logVisits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: payload.visitor.id,
+          plate: "WALL 100",
+          visitorName: "Wall QR Visitor",
+          status: "pending",
+          purposeNotes: expect.stringContaining("Requested host: AI Projects Lab"),
+        }),
+      ]),
+    );
   });
 
-  it("converts a public visitor request only after a guard assigns an HR host", async () => {
+  it("accepts public Courier registrations without a requested host", async () => {
+    const response = await createPublicVisitorRequestEndpoint(
+      jsonRequest("/api/public/visitor-requests", {
+        name: "Courier Rider",
+        phoneNumber: "0196776100",
+        organisation: "Delivery Partner",
+        identityType: "nric",
+        nric: "900101-14-1234",
+        vehicleNumber: "CR 100",
+        typeCode: "courier",
+        purpose: "delivery",
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      requestedHostText: "",
+      visitor: {
+        name: "Courier Rider",
+        typeCode: "courier",
+        purpose: "delivery",
+        hostStaffId: null,
+      },
+    });
+
+    const saved = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: payload.visitor.id });
+    expect(saved.hostStaffId).toBeNull();
+    expect(saved.remarks).toBeNull();
+  });
+
+  it("checks in a public QR visitor after a guard assigns an HR host", async () => {
     const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
     const token = await signTestSupabaseAccessToken(guard.id);
     const host = await seedHrHost(AppDataSource.manager, {
@@ -1152,29 +1209,39 @@ describe("visitor pass database flow", () => {
     );
     const created = await createResponse.json();
 
-    const missingHostResponse = await reviewVisitorRequestEndpoint(
-      jsonRequest(`/api/visitor-requests/${created.request.id}`, { hostStaffId: "" }, token, "PATCH"),
-      { params: Promise.resolve({ id: created.request.id }) },
+    const reviewResponse = await scanVisitorEndpoint(
+      jsonRequest("/api/visitors/scan", { token: created.token, action: "review" }, token),
     );
-    expect(missingHostResponse.status).toBe(400);
-    await expect(missingHostResponse.json()).resolves.toMatchObject({
-      error: "Host must be selected from the HR directory.",
+    expect(reviewResponse.status).toBe(200);
+    await expect(reviewResponse.json()).resolves.toMatchObject({
+      visitor: {
+        name: "Convert Me",
+        vehicleNumber: "REQ 200",
+        status: "pending",
+        hostStaffId: null,
+        remarks: "Requested host: Dr. Request",
+      },
     });
 
-    const convertResponse = await reviewVisitorRequestEndpoint(
-      jsonRequest(`/api/visitor-requests/${created.request.id}`, { hostStaffId: host.staffId }, token, "PATCH"),
-      { params: Promise.resolve({ id: created.request.id }) },
+    const checkInResponse = await scanVisitorEndpoint(
+      jsonRequest(
+        "/api/visitors/scan",
+        {
+          token: created.token,
+          action: "check_in",
+          vehicleNumber: "REQ 200",
+          visitor: {
+            hostStaffId: host.staffId,
+            hostDepartment: host.department,
+          },
+        },
+        token,
+      ),
     );
 
-    expect(convertResponse.status).toBe(200);
-    const payload = await convertResponse.json();
-    expect(payload.request).toMatchObject({
-      id: created.request.id,
-      status: "converted",
-      convertedVisitorId: payload.issued.visitor.id,
-      reviewedBy: guard.id,
-    });
-    expect(payload.issued.visitor).toMatchObject({
+    expect(checkInResponse.status).toBe(200);
+    const payload = await checkInResponse.json();
+    expect(payload.visitor).toMatchObject({
       name: "Convert Me",
       vehicleNumber: "REQ 200",
       status: "checked_in",
@@ -1182,9 +1249,133 @@ describe("visitor pass database flow", () => {
       hostDepartment: host.department,
     });
 
-    const savedRequest = await AppDataSource.manager.findOneByOrFail(VisitorRequestSchema, { id: created.request.id });
-    expect(savedRequest.status).toBe("converted");
-    expect(savedRequest.convertedVisitorId).toBe(payload.issued.visitor.id);
+    const savedVisitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: created.visitor.id });
+    expect(savedVisitor.checkedInBy).toBe(guard.id);
+  });
+
+  it("lets guards reassign a visit host before the visit date expires and records audit details", async () => {
+    const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
+    const token = await signTestSupabaseAccessToken(guard.id);
+    const originalHost = await seedHrHost(AppDataSource.manager, {
+      id: 691,
+      empNo: "CCSB0691",
+      name: "Original Host",
+      department: "AI Projects Lab",
+      email: "original.host@cryocord.test",
+      phone: "+60126910000",
+    });
+    const nextHost = await seedHrHost(AppDataSource.manager, {
+      id: 692,
+      empNo: "CCSB0692",
+      name: "Next Host",
+      department: "Security Lab",
+      email: "next.host@cryocord.test",
+      phone: "+60126920000",
+    });
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({
+        vehicleNumber: "HOST 100",
+        typeCode: "visitor",
+        visitDate: futureVisitDate(),
+        hostStaffId: originalHost.staffId,
+        hostDepartment: originalHost.department,
+      }),
+    );
+
+    const response = await updateVisitorHostEndpoint(
+      jsonRequest(
+        `/api/visitors/${issued.visitor.id}/host`,
+        { hostStaffId: nextHost.staffId },
+        token,
+        "PATCH",
+      ),
+      { params: Promise.resolve({ id: issued.visitor.id }) },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      visitor: {
+        id: issued.visitor.id,
+        hostStaffId: nextHost.staffId,
+        hostDepartment: nextHost.department,
+        changed: true,
+      },
+    });
+
+    const savedVisitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: issued.visitor.id });
+    expect(savedVisitor).toMatchObject({
+      hostStaffId: nextHost.staffId,
+      hostDepartment: nextHost.department,
+    });
+
+    const auditEvent = await AppDataSource.manager.findOneByOrFail(VisitorScanEventSchema, {
+      visitorId: issued.visitor.id,
+      eventType: "details_updated",
+    });
+    expect(auditEvent.guardId).toBe(guard.id);
+    expect(auditEvent.metadata).toMatchObject({
+      reason: "host_reassigned",
+      changes: {
+        hostStaffId: { from: originalHost.staffId, to: nextHost.staffId },
+        hostDepartment: { from: originalHost.department, to: nextHost.department },
+      },
+    });
+
+    const trail = await getVisitAuditTrail(issued.visitor.id);
+    expect(trail).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          activityTitle: "Host reassigned",
+          activityDescription: expect.stringContaining("Host staff ID"),
+          actionType: "UPDATE",
+        }),
+      ]),
+    );
+  });
+
+  it("blocks visit host reassignment after the visit date has ended", async () => {
+    const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
+    const token = await signTestSupabaseAccessToken(guard.id);
+    const host = await seedHrHost(AppDataSource.manager, {
+      id: 693,
+      empNo: "CCSB0693",
+      name: "Late Host",
+      department: "Late Lab",
+      email: "late.host@cryocord.test",
+      phone: "+60126930000",
+    });
+    const issued = await createVisitorPass(
+      createVisitorInputFactory({
+        vehicleNumber: "HOST 200",
+        typeCode: "visitor",
+        visitDate: futureVisitDate(),
+        hostStaffId: "",
+        hostDepartment: "",
+      }),
+    );
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    await AppDataSource.manager.update(VisitorSchema, { id: issued.visitor.id }, {
+      visitDate: yesterday.toISOString().slice(0, 10),
+    });
+
+    const response = await updateVisitorHostEndpoint(
+      jsonRequest(
+        `/api/visitors/${issued.visitor.id}/host`,
+        { hostStaffId: host.staffId },
+        token,
+        "PATCH",
+      ),
+      { params: Promise.resolve({ id: issued.visitor.id }) },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Host can only be changed until the end of the visit date.",
+    });
+
+    const savedVisitor = await AppDataSource.manager.findOneByOrFail(VisitorSchema, { id: issued.visitor.id });
+    expect(savedVisitor.hostStaffId).toBeNull();
   });
 
   it("rejects unauthenticated visitor endpoint requests", async () => {
@@ -1227,6 +1418,33 @@ describe("visitor pass database flow", () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({
       error: "Host is required.",
+    });
+  });
+
+  it("allows authenticated Courier visitor endpoint requests without a host", async () => {
+    const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
+    const token = await signTestSupabaseAccessToken(guard.id);
+
+    const response = await createVisitorEndpoint(
+      jsonRequest(
+        "/api/visitors",
+        createVisitorInputFactory({
+          typeCode: "courier",
+          purpose: "delivery",
+          hostStaffId: "",
+          hostDepartment: "",
+        }),
+        token,
+      ),
+    );
+
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload.visitor).toMatchObject({
+      typeCode: "courier",
+      purpose: "delivery",
+      hostStaffId: null,
+      hostDepartment: null,
     });
   });
 
@@ -1356,7 +1574,7 @@ describe("visitor pass database flow", () => {
   });
 
   it("scans visitor passes through the authenticated endpoint and records the authenticated guard", async () => {
-    const guard = await seedParkingUser(AppDataSource.manager, { role: "supervisor" });
+    const guard = await seedParkingUser(AppDataSource.manager, { role: "guard" });
     const token = await signTestSupabaseAccessToken(guard.id);
     const issuedResponse = await createVisitorEndpoint(
       jsonRequest("/api/visitors", createVisitorInputFactory({ typeCode: "visitor" }), token),

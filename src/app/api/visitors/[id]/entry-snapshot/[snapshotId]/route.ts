@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { authErrorResponse, requireParkingUser } from "@/lib/server/auth";
+import { invalidateParkingReadModelCache } from "@/lib/server/parking-cache";
 import {
   EntrySnapshotNotEligibleError,
   removeVisitorEntrySnapshot,
@@ -52,6 +53,7 @@ export async function PUT(
       contentType: snapshot.type,
     });
 
+    await invalidateParkingReadModelCache();
     revalidateVisitorPages(visitorId);
     return jsonWithRequestId({ snapshot: result, requestId }, 200, requestId);
   } catch (error) {
@@ -81,6 +83,7 @@ export async function DELETE(
       actor,
     });
 
+    await invalidateParkingReadModelCache();
     revalidateVisitorPages(visitorId);
     return jsonWithRequestId({ snapshot: result, requestId }, 200, requestId);
   } catch (error) {

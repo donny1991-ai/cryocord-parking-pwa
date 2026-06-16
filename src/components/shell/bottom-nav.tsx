@@ -40,11 +40,11 @@ export function BottomNav({ guardRole }: { guardRole?: ParkingUserRole }) {
           <NavItem key={it.href} {...it} active={isActive(it.href, it.exact)} />
         ))}
 
-        {/* Center elevated primary action — New Entry */}
+        {/* Center elevated primary action — Gate Entry */}
         <div className="flex justify-center">
           <Link
             href="/parking/entry"
-            aria-label="New entry"
+            aria-label="Gate entry"
             className="relative -mt-8 flex h-16 w-16 flex-col items-center justify-center rounded-full bg-gradient-to-br from-brand to-brand-dark text-white shadow-glass-red ring-4 ring-canvas/80 transition-transform active:scale-95"
           >
             {entryActive && (

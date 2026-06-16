@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { authErrorResponse, requireParkingUser } from "@/lib/server/auth";
+import { invalidateParkingReadModelCache } from "@/lib/server/parking-cache";
 import {
   assertVisitorTypeCode,
   assertPurpose,
@@ -18,6 +19,7 @@ const LIMITS = {
   name: 160,
   phoneNumber: 40,
   organisation: 160,
+  representingOrganisation: 160,
   nric: 14,
   passportNumber: 20,
   vehicleNumber: 32,
@@ -81,6 +83,12 @@ function parseVisitorDetails(value: unknown): VisitorDetailsUpdateInput | undefi
 
   if ("organisation" in body) {
     details.organisation = parseNullableString(body.organisation, LIMITS.organisation);
+  }
+  if ("representingOrganisation" in body) {
+    details.representingOrganisation = parseNullableString(
+      body.representingOrganisation,
+      LIMITS.representingOrganisation,
+    );
   }
 
   if ("identityType" in body) details.identityType = body.identityType === "passport" ? "passport" : "nric";
@@ -153,12 +161,14 @@ export async function POST(request: NextRequest) {
 
     if (body.action === "review") {
       const visitor = await reviewVisitorPass({ token, guardId: actor.id });
+      await invalidateParkingReadModelCache();
       revalidateParkingPages(visitor.id);
       return NextResponse.json({ visitor });
     }
 
     if (body.action === "review_exit") {
       const visitor = await reviewVisitorPassForExit({ token, guardId: actor.id });
+      await invalidateParkingReadModelCache();
       revalidateParkingPages(visitor.id);
       return NextResponse.json({ visitor });
     }
@@ -174,6 +184,7 @@ export async function POST(request: NextRequest) {
         vehicleNumber: typeof body.vehicleNumber === "string" ? body.vehicleNumber.trim() : undefined,
         reason,
       });
+      await invalidateParkingReadModelCache();
       revalidateParkingPages(visitor.id);
       return NextResponse.json({ visitor });
     }
@@ -186,6 +197,7 @@ export async function POST(request: NextRequest) {
       guardId: actor.id,
       details: parseVisitorDetails(body.visitor),
     });
+    await invalidateParkingReadModelCache();
     revalidateParkingPages(visitor.id);
     return NextResponse.json({ visitor });
   } catch (error) {
@@ -233,7 +245,7 @@ function revalidateParkingPages(visitorId: string) {
     revalidatePath("/parking");
     revalidatePath("/parking/visits");
     revalidatePath("/parking/exit");
-    revalidatePath("/parking/arrival");
+    revalidatePath("/parking/entry");
     revalidatePath(`/parking/visit/${visitorId}`);
   } catch {
     // Direct test invocation does not always provide Next's static generation store.

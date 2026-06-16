@@ -15,6 +15,9 @@ describe("UsersAdmin", () => {
 
     expect(screen.getByRole("button", { name: "Create user" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: /Saving/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Guard" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Admin" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Supervisor" })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/Full name/i), { target: { value: "Khal" } });
     fireEvent.change(screen.getByLabelText(/Email/i), {

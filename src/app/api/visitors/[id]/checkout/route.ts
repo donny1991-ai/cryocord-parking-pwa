@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { authErrorResponse, requireParkingUser } from "@/lib/server/auth";
+import { invalidateParkingReadModelCache } from "@/lib/server/parking-cache";
 import { checkOutVisitorById } from "@/lib/server/visitors";
 
 export const runtime = "nodejs";
@@ -15,6 +16,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       vehicleNumber: typeof body.vehicleNumber === "string" ? body.vehicleNumber.trim() : undefined,
       guardId: actor.id,
     });
+    await invalidateParkingReadModelCache();
     revalidateParkingPages(visitor.id);
     return NextResponse.json({ visitor });
   } catch (error) {

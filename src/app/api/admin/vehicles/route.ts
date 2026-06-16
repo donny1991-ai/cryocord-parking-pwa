@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { authErrorResponse, requireParkingUser } from "@/lib/server/auth";
+import { invalidateVehicleReadModelCache } from "@/lib/server/parking-cache";
 import { createParkingVehicle } from "@/lib/server/admin-vehicles";
 
 export const runtime = "nodejs";
@@ -10,6 +11,7 @@ export async function POST(request: NextRequest) {
     await requireParkingUser(request, ["admin"]);
     const body = await request.json();
     const vehicle = await createParkingVehicle(body);
+    await invalidateVehicleReadModelCache();
     revalidateVehiclePages();
     return NextResponse.json({ vehicle }, { status: 201 });
   } catch (error) {

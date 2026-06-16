@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { authErrorResponse, requireParkingUser } from "@/lib/server/auth";
-import { assertPurpose, assertVisitDate, assertVisitorTypeCode, createVisitorPass } from "@/lib/server/visitors";
+import { invalidateParkingReadModelCache } from "@/lib/server/parking-cache";
+import { assertPurpose, assertVisitDate, assertVisitorTypeCode, createVisitorPass, visitTypeRequiresHost } from "@/lib/server/visitors";
 
 export const runtime = "nodejs";
 
@@ -9,6 +10,7 @@ const LIMITS = {
   name: 160,
   phoneNumber: 40,
   organisation: 160,
+  representingOrganisation: 160,
   nric: 14,
   passportNumber: 20,
   vehicleNumber: 32,
@@ -83,6 +85,7 @@ export async function POST(request: NextRequest) {
     const name = String(body.name ?? "").trim();
     const phoneNumber = String(body.phoneNumber ?? "").trim();
     const organisation = String(body.organisation ?? "").trim();
+    const representingOrganisation = String(body.representingOrganisation ?? "").trim();
     const nric = String(body.nric ?? "").trim();
     const passportNumber = String(body.passportNumber ?? "").trim();
     const identityType = body.identityType === "passport" || body.identityType === "nric" ? body.identityType : undefined;
@@ -106,7 +109,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!hostStaffId) {
+    if (visitTypeRequiresHost(typeCode) && !hostStaffId) {
       return NextResponse.json({ error: "Host is required." }, { status: 400 });
     }
 
@@ -114,6 +117,7 @@ export async function POST(request: NextRequest) {
       tooLong(name, LIMITS.name) ||
       tooLong(phoneNumber, LIMITS.phoneNumber) ||
       tooLong(organisation, LIMITS.organisation) ||
+      tooLong(representingOrganisation, LIMITS.representingOrganisation) ||
       tooLong(nric, LIMITS.nric) ||
       tooLong(passportNumber, LIMITS.passportNumber) ||
       tooLong(vehicleNumber, LIMITS.vehicleNumber) ||
@@ -131,6 +135,7 @@ export async function POST(request: NextRequest) {
       name,
       phoneNumber,
       organisation,
+      representingOrganisation,
       identityType,
       nric: nric || undefined,
       passportNumber: passportNumber || undefined,
@@ -150,6 +155,7 @@ export async function POST(request: NextRequest) {
       checkInOnCreate: body.checkInOnCreate === true,
     });
 
+    await invalidateParkingReadModelCache();
     revalidateParkingPages(result.visitor.id);
     return NextResponse.json(result, { status: 201 });
   } catch (error) {

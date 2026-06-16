@@ -122,7 +122,7 @@ export async function verifySupabaseAccessToken(token: string) {
 
 export async function getParkingUserForToken(
   token: string,
-  allowedRoles: ParkingUserRole[] = ["guard", "supervisor", "admin"],
+  allowedRoles: ParkingUserRole[] = ["guard", "admin"],
 ) {
   const userId = await verifySupabaseAccessToken(token);
   const ds = await getParkingDataSource();
@@ -141,7 +141,7 @@ export async function getParkingUserForToken(
 
 export async function requireParkingUser(
   request: Request,
-  allowedRoles: ParkingUserRole[] = ["guard", "supervisor", "admin"],
+  allowedRoles: ParkingUserRole[] = ["guard", "admin"],
 ) {
   return getParkingUserForToken(getRequestToken(request), allowedRoles);
 }

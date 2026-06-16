@@ -2,9 +2,46 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NewEntryFlow } from "./new-entry-flow";
 
+const cameraMocks = vi.hoisted(() => ({
+  supported: false,
+  getCameraStream: vi.fn(),
+  stopStream: vi.fn(),
+}));
+
+vi.mock("@/lib/camera", () => ({
+  checkCameraSupport: () =>
+    cameraMocks.supported
+      ? { ok: true }
+      : {
+          ok: false,
+          reason: "unsupported",
+          message: "This browser does not expose camera access.",
+        },
+  describeCameraError: () => "Could not start the camera.",
+  getCameraStream: cameraMocks.getCameraStream,
+  stopStream: cameraMocks.stopStream,
+}));
+
 describe("NewEntryFlow", () => {
   afterEach(() => {
+    cameraMocks.supported = false;
+    cameraMocks.getCameraStream.mockReset();
+    cameraMocks.stopStream.mockReset();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("starts with plate camera capture and keeps manual entry available", async () => {
+    cameraMocks.supported = true;
+    cameraMocks.getCameraStream.mockResolvedValue({ getTracks: () => [] });
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+
+    render(<NewEntryFlow employees={[]} vehicles={[]} />);
+
+    expect(await screen.findByRole("button", { name: /Capture & read plate/i })).toBeInTheDocument();
+    expect(screen.queryByText("Manual vehicle entry")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("e.g. WA 18 K")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Use/i })).toBeDisabled();
   });
 
   it("submits optional visit time, visitor count, and remarks", async () => {
@@ -35,7 +72,9 @@ describe("NewEntryFlow", () => {
     fireEvent.click(screen.getByRole("button", { name: /Use/i }));
 
     fireEvent.change(screen.getByLabelText(/Main visitor name/i), { target: { value: "Nadia Visitor" } });
+    fireEvent.change(screen.getByLabelText(/Main visitor NRIC number/i), { target: { value: "900101-14-1234" } });
     fireEvent.change(screen.getByLabelText(/Main visitor contact number/i), { target: { value: "+60123456789" } });
+    fireEvent.change(screen.getByLabelText(/Company represented/i), { target: { value: "Partner Vendor" } });
     fireEvent.change(screen.getByLabelText(/Purpose/i), { target: { value: "other" } });
     fireEvent.change(screen.getByLabelText(/Visit time/i), { target: { value: "09:30" } });
     fireEvent.change(screen.getByLabelText(/Number of visitors/i), { target: { value: "3" } });
@@ -45,9 +84,6 @@ describe("NewEntryFlow", () => {
     fireEvent.change(screen.getByLabelText("Additional vehicle 1"), { target: { value: "cc 101" } });
     fireEvent.change(screen.getByLabelText(/Remarks/i), { target: { value: "Park near loading bay" } });
 
-    expect(screen.getByRole("button", { name: /Log Entry & Issue Pass/i })).toBeDisabled();
-
-    fireEvent.change(screen.getByLabelText(/Main visitor NRIC number/i), { target: { value: "900101-14-1234" } });
     expect(screen.getByRole("button", { name: /Log Entry & Issue Pass/i })).toBeDisabled();
 
     fireEvent.change(screen.getByRole("combobox", { name: /Host/i }), { target: { value: "aina" } });
@@ -69,6 +105,7 @@ describe("NewEntryFlow", () => {
       additionalVehicleNumbers: ["CC 101"],
       name: "Nadia Visitor",
       phoneNumber: "+60123456789",
+      representingOrganisation: "Partner Vendor",
       identityType: "nric",
       nric: "900101-14-1234",
       purpose: "other",
@@ -79,6 +116,48 @@ describe("NewEntryFlow", () => {
       hostStaffId: "CCSB0698",
       hostDepartment: "AI Projects Lab",
     }));
+  });
+
+  it("sets purpose to Delivery when Courier is selected", () => {
+    render(<NewEntryFlow employees={[]} vehicles={[]} />);
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. WA 18 K"), { target: { value: "cr 100" } });
+    fireEvent.click(screen.getByRole("button", { name: /Use/i }));
+    fireEvent.change(screen.getByLabelText(/Visit type/i), { target: { value: "courier" } });
+
+    expect(screen.getByLabelText(/^Purpose/i)).toHaveValue("delivery");
+    expect(screen.getByLabelText(/^Purpose/i)).toBeEnabled();
+  });
+
+  it("does not require a host before issuing a Courier gate entry", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      visitor: { id: "visitor-1" },
+      token: "signed-token",
+      tokenExpiresAt: "2026-06-08T15:59:59.000Z",
+    }), { status: 201, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<NewEntryFlow employees={[]} vehicles={[]} />);
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. WA 18 K"), { target: { value: "cr 100" } });
+    fireEvent.click(screen.getByRole("button", { name: /Use/i }));
+    fireEvent.change(screen.getByLabelText(/Main visitor name/i), { target: { value: "Courier Rider" } });
+    fireEvent.change(screen.getByLabelText(/Main visitor NRIC number/i), { target: { value: "900101-14-1234" } });
+    fireEvent.change(screen.getByLabelText(/Main visitor contact number/i), { target: { value: "+60123456789" } });
+    fireEvent.change(screen.getByLabelText(/Visit type/i), { target: { value: "courier" } });
+
+    const submit = screen.getByRole("button", { name: /Log Entry & Issue Pass/i });
+    expect(submit).toBeEnabled();
+    fireEvent.click(submit);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [, requestInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(String(requestInit.body));
+    expect(body).toEqual(expect.objectContaining({
+      typeCode: "courier",
+      purpose: "delivery",
+    }));
+    expect(body).not.toHaveProperty("hostStaffId");
   });
 
   it("blocks issuing a pass for a blacklisted known vehicle", () => {
@@ -144,9 +223,9 @@ describe("NewEntryFlow", () => {
     expect(screen.getByText("Host contact")).toBeInTheDocument();
     expect(screen.getByText("Aina Host")).toBeInTheDocument();
     expect(screen.getByText("AI Projects Lab")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /WhatsApp 0191112222/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /WhatsApp Call 0191112222/i })).toHaveAttribute(
       "href",
-      expect.stringContaining("https://wa.me/60191112222?text="),
+      "https://wa.me/call/60191112222",
     );
     expect(screen.getByText("Ext 808")).toBeInTheDocument();
   });

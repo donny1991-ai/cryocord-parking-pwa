@@ -130,6 +130,34 @@ azd env set SMTP_FROM aiprojects@cryocord.com.my
 azd env set SMTP_TLS_REJECT_UNAUTHORIZED false
 ```
 
+Performance-related Container Apps defaults are tuned for the production PWA:
+
+```bash
+azd env set CONTAINER_APP_MIN_REPLICAS 1
+azd env set CONTAINER_APP_MAX_REPLICAS 5
+azd env set CONTAINER_APP_CPU_CORES 1.0
+azd env set CONTAINER_APP_MEMORY 2Gi
+azd env set CONTAINER_APP_HTTP_SCALE_CONCURRENT_REQUESTS 25
+azd env set DATABASE_POOL_MAX 3
+```
+
+To reuse an existing Azure Managed Redis or Azure Cache for Redis instance from
+another resource group, pass its TLS connection URL into the Container App rather
+than creating a second cache in this stack:
+
+```bash
+azd env set CACHE_REDIS_URL 'rediss://:<redis-access-key>@<redis-host>:6380'
+azd env set CACHE_REDIS_KEY_PREFIX 'cryocord-parking:prod:'
+```
+
+`CACHE_REDIS_URL` may also use Azure's comma-separated access-key connection
+string format, such as `<host>:6380,password=<key>,ssl=True`.
+
+The cache must be reachable from the Container App. If Redis uses private
+networking, put the Container Apps environment on a network path that can reach
+that private endpoint. If Redis is public, restrict firewall/network access as
+tightly as the deployment allows and keep TLS enabled.
+
 Provision and deploy:
 
 ```bash
@@ -240,7 +268,7 @@ The initial migration creates:
 | `parking.visitor_types` | Seeded lookup: `guest`, `vendor`, `client`, `staff` |
 | `parking.visitors` | Visitor identity, vehicle number, pending/check-in/check-out timestamps, remarks, QR token id |
 | `parking.visitor_scan_events` | Append-only scan history for pass issuance, check-in, check-out, rejected scans |
-| `parking.users` | Parking staff profiles linked to Supabase `auth.users`; roles are `guard`, `supervisor`, `admin` |
+| `parking.users` | Parking staff profiles linked to Supabase `auth.users`; roles are `guard`, `admin` |
 | `parking.auth_otps` | Short-lived 6-digit email OTP login challenges |
 | `parking.vehicles` | Known vehicle registry and blacklist seed data for guard workflows |
 

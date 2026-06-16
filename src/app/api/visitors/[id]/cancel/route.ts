@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { authErrorResponse, requireParkingUser } from "@/lib/server/auth";
+import { invalidateParkingReadModelCache } from "@/lib/server/parking-cache";
 import { cancelPendingVisitorPass } from "@/lib/server/visitors";
 
 export const runtime = "nodejs";
@@ -10,6 +11,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const actor = await requireParkingUser(request);
     const { id } = await params;
     const visitor = await cancelPendingVisitorPass({ visitorId: id, guardId: actor.id });
+    await invalidateParkingReadModelCache();
     revalidateParkingPages(visitor.id);
     return NextResponse.json({ visitor });
   } catch (error) {

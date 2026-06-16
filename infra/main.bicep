@@ -47,11 +47,21 @@ param authOtpSecret string = ''
 @description('Optional SMTP password for OTP email delivery. Leave empty to add it manually on the Container App.')
 param smtpPass string = ''
 
+@secure()
+@description('Optional Redis connection URL for application-level caching, for example rediss://:<key>@<host>:6380. Leave empty to disable Redis wiring.')
+param redisUrl string = ''
+
+@description('Namespace prefix for application Redis keys. Useful when sharing an existing Redis instance.')
+param redisKeyPrefix string = 'cryocord-parking:${environmentName}:'
+
 @description('Whether the production database connection should use SSL.')
 param databaseSsl string = 'true'
 
 @description('Whether Node should reject unauthorized Postgres SSL certificates.')
 param databaseSslRejectUnauthorized string = 'true'
+
+@description('Maximum Postgres connections per app replica.')
+param databasePoolMax string = '3'
 
 @description('Key id label for the active QR signing key.')
 param parkingQrKeyId string = 'prod'
@@ -84,13 +94,16 @@ param smtpEhloDomain string = 'cryocord-parking.azurecontainerapps.io'
 param minReplicas int = 1
 
 @description('Maximum Container App replicas.')
-param maxReplicas int = 3
+param maxReplicas int = 5
 
 @description('CPU cores assigned to each app replica.')
-param cpuCores string = '0.5'
+param cpuCores string = '1.0'
 
 @description('Memory assigned to each app replica.')
-param memory string = '1Gi'
+param memory string = '2Gi'
+
+@description('HTTP concurrent request threshold that triggers Container Apps scale-out.')
+param httpScaleConcurrentRequests string = '25'
 
 var tags = {
   'azd-env-name': environmentName
@@ -115,6 +128,7 @@ module app './app.bicep' = {
     databaseUrl: databaseUrl
     databaseSsl: databaseSsl
     databaseSslRejectUnauthorized: databaseSslRejectUnauthorized
+    databasePoolMax: databasePoolMax
     parkingQrKeyId: parkingQrKeyId
     parkingQrSigningKey: parkingQrSigningKey
     supabaseJwtSecret: supabaseJwtSecret
@@ -128,6 +142,8 @@ module app './app.bicep' = {
     smtpUser: smtpUser
     smtpFrom: smtpFrom
     smtpPass: smtpPass
+    redisUrl: redisUrl
+    redisKeyPrefix: redisKeyPrefix
     smtpSecure: smtpSecure
     smtpTlsRejectUnauthorized: smtpTlsRejectUnauthorized
     smtpEhloDomain: smtpEhloDomain
@@ -135,6 +151,7 @@ module app './app.bicep' = {
     maxReplicas: maxReplicas
     cpuCores: cpuCores
     memory: memory
+    httpScaleConcurrentRequests: httpScaleConcurrentRequests
     tags: tags
   }
 }
