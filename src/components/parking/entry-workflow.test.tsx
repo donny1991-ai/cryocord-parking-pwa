@@ -15,6 +15,9 @@ describe("EntryWorkflow", () => {
   it("keeps QR arrival available while plate capture is available", () => {
     render(<EntryWorkflow employees={[]} vehicles={[]} />);
 
+    const modeButtons = screen.getAllByRole("button").slice(0, 2);
+    expect(modeButtons[0]).toHaveAccessibleName(/QR arrival/i);
+    expect(modeButtons[1]).toHaveAccessibleName(/Plate entry/i);
     expect(screen.getByRole("button", { name: /QR arrival/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /Scan arrival QR/i })).toBeInTheDocument();
     expect(screen.queryByText("Manual vehicle entry")).not.toBeInTheDocument();

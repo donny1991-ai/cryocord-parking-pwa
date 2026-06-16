@@ -28,18 +28,18 @@ export function EntryWorkflow({
     <div className="space-y-4">
       <GlassCard padding="sm" className="grid grid-cols-2 gap-2">
         <ModeButton
-          active={mode === "plate"}
-          icon={CarFront}
-          title="Plate entry"
-          subtitle="Scan plate and issue pass"
-          onClick={() => setMode("plate")}
-        />
-        <ModeButton
           active={mode === "qr"}
           icon={QrCode}
           title="QR arrival"
           subtitle="Scan visitor pass"
           onClick={() => setMode("qr")}
+        />
+        <ModeButton
+          active={mode === "plate"}
+          icon={CarFront}
+          title="Plate entry"
+          subtitle="Scan plate and issue pass"
+          onClick={() => setMode("plate")}
         />
       </GlassCard>
 
