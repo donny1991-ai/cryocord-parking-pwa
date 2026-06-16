@@ -20,4 +20,30 @@ describe("extractPlateCandidates", () => {
   it("can find a plate inside labelled OCR text", () => {
     expect(extractPlateCandidates("PLATE WUV 2024")).toContain("WUV2024");
   });
+
+  it("meets the minimum parser accuracy score on noisy OCR text samples", () => {
+    const minimumAccuracy = 0.9;
+    const samples: Array<{ raw: string; expected: string | null }> = [
+      { raw: "PFQ 5217", expected: "PFQ5217" },
+      { raw: "P F Q 5217", expected: "PFQ5217" },
+      { raw: "WA 18 K", expected: "WA18K" },
+      { raw: "W A 18 K", expected: "WA18K" },
+      { raw: "TES 3456", expected: "TES3456" },
+      { raw: "J K L 4521", expected: "JKL4521" },
+      { raw: "ABC 1234 T", expected: "ABC1234T" },
+      { raw: "PLATE WUV 2024", expected: "WUV2024" },
+      { raw: "VIP 1", expected: "VIP1" },
+      { raw: "BMT 77", expected: "BMT77" },
+      { raw: "NO PLATE DETECTED", expected: null },
+      { raw: "REGULATORY COMPLIANCE STRATEGY", expected: null },
+    ];
+
+    const correct = samples.filter(({ raw, expected }) => {
+      const candidates = extractPlateCandidates(raw);
+      return expected ? candidates.includes(expected) : candidates.length === 0;
+    }).length;
+    const score = correct / samples.length;
+
+    expect(score).toBeGreaterThanOrEqual(minimumAccuracy);
+  });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Camera, CameraOff, Keyboard, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, Camera, CameraOff, CheckCircle2, Keyboard, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { normalisePlate } from "@/lib/utils";
@@ -13,7 +13,8 @@ import {
   stopStream,
 } from "@/lib/camera";
 
-type Status = "starting" | "live" | "reading" | "blocked";
+type Status = "starting" | "live" | "reading" | "detected" | "blocked";
+type Feedback = { tone: "success" | "warning" | "error"; message: string } | null;
 
 const PLATE_FRAME = {
   x: 0.08,
@@ -21,6 +22,7 @@ const PLATE_FRAME = {
   width: 0.84,
   height: 0.34,
 };
+const AUTO_ADVANCE_CONFIDENCE = 0.75;
 
 function preparePlateImage(video: HTMLVideoElement, canvas: HTMLCanvasElement) {
   const sourceWidth = video.videoWidth;
@@ -59,13 +61,14 @@ function preparePlateImage(video: HTMLVideoElement, canvas: HTMLCanvasElement) {
  * device. When the camera can't start, the real reason is shown (insecure
  * context / permission / no device) rather than a silent fallback.
  */
-export function PlateCapture({ onPlate }: { onPlate: (plate: string) => void }) {
+export function PlateCapture({ onPlate }: { onPlate: (plate: string, source: "scan" | "manual") => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const advanceTimerRef = useRef<number | null>(null);
   const [status, setStatus] = useState<Status>("starting");
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<Feedback>(null);
   const [manual, setManual] = useState("");
   const [attempt, setAttempt] = useState(0);
 
@@ -105,6 +108,10 @@ export function PlateCapture({ onPlate }: { onPlate: (plate: string) => void }) 
     start();
     return () => {
       cancelled = true;
+      if (advanceTimerRef.current) {
+        window.clearTimeout(advanceTimerRef.current);
+        advanceTimerRef.current = null;
+      }
       stopStream(streamRef.current);
       streamRef.current = null;
     };
@@ -115,19 +122,29 @@ export function PlateCapture({ onPlate }: { onPlate: (plate: string) => void }) 
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
     setStatus("reading");
-    setNotice(null);
+    setFeedback(null);
     try {
       const candidates = await recognisePlate(preparePlateImage(video, canvas));
       if (candidates.length > 0) {
-        setManual(candidates[0].plate);
-        setNotice("Review the detected plate, edit if needed, then tap Use.");
-        setStatus("live");
+        const bestCandidate = candidates[0];
+        const detectedPlate = normalisePlate(bestCandidate.plate);
+        setManual(detectedPlate);
+        if (bestCandidate.confidence >= AUTO_ADVANCE_CONFIDENCE) {
+          setFeedback({ tone: "success", message: `${detectedPlate} scanned successfully. Opening details…` });
+          setStatus("detected");
+          advanceTimerRef.current = window.setTimeout(() => {
+            onPlate(detectedPlate, "scan");
+          }, 650);
+        } else {
+          setFeedback({ tone: "warning", message: `${detectedPlate} was detected with low confidence. Check it, edit if needed, then tap Use.` });
+          setStatus("live");
+        }
       } else {
-        setNotice("Couldn't read a plate. Reframe and capture again, or type it below.");
+        setFeedback({ tone: "error", message: "Couldn't read a plate. Reframe and capture again, or type it below." });
         setStatus("live");
       }
     } catch {
-      setNotice("On-device OCR is unavailable here. Type the plate below.");
+      setFeedback({ tone: "error", message: "On-device OCR is unavailable here. Type the plate below." });
       setStatus("live");
     }
   }
@@ -162,6 +179,8 @@ export function PlateCapture({ onPlate }: { onPlate: (plate: string) => void }) 
             <div className="absolute left-1/2 top-3 -translate-x-1/2 rounded-full bg-black/45 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
               {status === "reading"
                 ? "Reading plate…"
+                : status === "detected"
+                  ? "Plate detected"
                 : status === "starting"
                   ? "Starting camera…"
                   : "Frame the number plate"}
@@ -176,7 +195,22 @@ export function PlateCapture({ onPlate }: { onPlate: (plate: string) => void }) 
         <canvas ref={canvasRef} className="hidden" />
       </div>
 
-      {notice && <p className="px-1 text-center text-xs font-medium text-brand">{notice}</p>}
+      {feedback && (
+        <div
+          role={feedback.tone === "success" ? "status" : "alert"}
+          className={
+            feedback.tone === "success"
+              ? "flex items-center justify-center gap-2 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-3.5 py-2.5 text-center text-xs font-bold text-emerald-700"
+              : feedback.tone === "warning"
+                ? "flex items-center justify-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-center text-xs font-bold text-amber-800"
+              : "rounded-2xl border border-brand/20 bg-brand/10 px-3.5 py-2.5 text-center text-xs font-bold text-brand"
+          }
+        >
+          {feedback.tone === "success" && <CheckCircle2 className="h-4 w-4 shrink-0" />}
+          {feedback.tone === "warning" && <AlertTriangle className="h-4 w-4 shrink-0" />}
+          <span>{feedback.message}</span>
+        </div>
+      )}
 
       {status === "live" && (
         <Button size="lg" className="w-full" onClick={capture}>
@@ -188,6 +222,12 @@ export function PlateCapture({ onPlate }: { onPlate: (plate: string) => void }) 
         <Button size="lg" className="w-full" disabled>
           <Loader2 className="h-5 w-5 animate-spin" />
           Reading…
+        </Button>
+      )}
+      {status === "detected" && (
+        <Button size="lg" className="w-full bg-emerald-600 shadow-[0_12px_34px_rgba(5,150,105,0.28)]" disabled>
+          <CheckCircle2 className="h-5 w-5" />
+          Plate scanned
         </Button>
       )}
 
@@ -204,8 +244,8 @@ export function PlateCapture({ onPlate }: { onPlate: (plate: string) => void }) 
         <Button
           variant="outline"
           size="lg"
-          disabled={normalisePlate(manual).length < 3}
-          onClick={() => onPlate(normalisePlate(manual))}
+          disabled={status === "detected" || normalisePlate(manual).length < 3}
+          onClick={() => onPlate(normalisePlate(manual), "manual")}
         >
           <Keyboard className="h-5 w-5" />
           Use

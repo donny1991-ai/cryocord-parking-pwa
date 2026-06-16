@@ -8,6 +8,10 @@ const cameraMocks = vi.hoisted(() => ({
   stopStream: vi.fn(),
 }));
 
+const ocrMocks = vi.hoisted(() => ({
+  recognisePlate: vi.fn(),
+}));
+
 vi.mock("@/lib/camera", () => ({
   checkCameraSupport: () =>
     cameraMocks.supported
@@ -22,13 +26,19 @@ vi.mock("@/lib/camera", () => ({
   stopStream: cameraMocks.stopStream,
 }));
 
+vi.mock("@/lib/ocr", () => ({
+  recognisePlate: ocrMocks.recognisePlate,
+}));
+
 describe("NewEntryFlow", () => {
   afterEach(() => {
     cameraMocks.supported = false;
     cameraMocks.getCameraStream.mockReset();
     cameraMocks.stopStream.mockReset();
+    ocrMocks.recognisePlate.mockReset();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("starts with plate camera capture and keeps manual entry available", async () => {
@@ -42,6 +52,56 @@ describe("NewEntryFlow", () => {
     expect(screen.queryByText("Manual vehicle entry")).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText("e.g. WA 18 K")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Use/i })).toBeDisabled();
+  });
+
+  it("confirms OCR success and advances to the details form automatically", async () => {
+    cameraMocks.supported = true;
+    cameraMocks.getCameraStream.mockResolvedValue({ getTracks: () => [] });
+    ocrMocks.recognisePlate.mockResolvedValue([{ plate: "PFQ5217", raw: "PFQ 5217", confidence: 0.93 }]);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      imageSmoothingEnabled: true,
+      drawImage: vi.fn(),
+      getImageData: vi.fn(() => ({ data: new Uint8ClampedArray(640 * 164 * 4) })),
+      putImageData: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", { configurable: true, get: () => 640 });
+    Object.defineProperty(HTMLVideoElement.prototype, "videoHeight", { configurable: true, get: () => 480 });
+
+    render(<NewEntryFlow employees={[]} vehicles={[]} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Capture & read plate/i }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("PFQ5217 scanned successfully");
+    expect(screen.queryByText(/Couldn't read a plate/i)).not.toBeInTheDocument();
+
+    expect(await screen.findByLabelText(/Main visitor name/i)).toBeInTheDocument();
+    expect(screen.getByText("PFQ5217")).toBeInTheDocument();
+    expect(screen.getByText("Plate scanned successfully. Complete the visitor details below.")).toBeInTheDocument();
+  });
+
+  it("requires review instead of auto-advancing when OCR confidence is low", async () => {
+    cameraMocks.supported = true;
+    cameraMocks.getCameraStream.mockResolvedValue({ getTracks: () => [] });
+    ocrMocks.recognisePlate.mockResolvedValue([{ plate: "PFQ5217", raw: "PFQ 5217", confidence: 0.62 }]);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      imageSmoothingEnabled: true,
+      drawImage: vi.fn(),
+      getImageData: vi.fn(() => ({ data: new Uint8ClampedArray(640 * 164 * 4) })),
+      putImageData: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", { configurable: true, get: () => 640 });
+    Object.defineProperty(HTMLVideoElement.prototype, "videoHeight", { configurable: true, get: () => 480 });
+
+    render(<NewEntryFlow employees={[]} vehicles={[]} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Capture & read plate/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("PFQ5217 was detected with low confidence");
+    expect(screen.getByPlaceholderText("e.g. WA 18 K")).toHaveValue("PFQ5217");
+    expect(screen.getByRole("button", { name: /Use/i })).toBeEnabled();
+    expect(screen.queryByLabelText(/Main visitor name/i)).not.toBeInTheDocument();
   });
 
   it("submits optional visit time, visitor count, and remarks", async () => {
